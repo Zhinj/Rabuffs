@@ -267,6 +267,26 @@ function RAB_StartUp()
 			RAB_Print("Bar " .. index .. " has an invalid name: " .. tostring(bar.buffKey) .. " please readd that buff", "warn");
 			RABui_Bars[index] = nil;
 		end
+		
+		-- Initialize buffKeys for multi-query support (convert from single buffKey if needed)
+		if bar.buffKey then
+			if not bar.buffKeys then
+				if type(bar.buffKey) == "table" then
+					bar.buffKeys = bar.buffKey;
+				else
+					bar.buffKeys = { bar.buffKey };
+				end
+			end
+			-- Ensure buffKey is primary (for legacy support)
+			if type(bar.buffKey) == "table" then
+				bar.buffKey = bar.buffKeys[1];
+			end
+		end
+		
+		-- Initialize queryColors if not present
+		if not bar.queryColors then
+			bar.queryColors = {};
+		end
 	end
 
 	RABui_DefBars = nil;

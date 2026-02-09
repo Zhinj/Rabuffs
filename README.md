@@ -1,4 +1,5 @@
 # WARNING
+
 This version is not backwards compatible with the original - it uses a new format in the WTF file as the original was very impractical to work with.
 
 I would recommend backing up your WTF folder or SavedVariables\Rabuffs.lua in case you ever want to revert.
@@ -62,6 +63,7 @@ Query and report buff status with flexible targeting:
 - `/rabq [target] <query> [groups] [classes]`
 
 **Target Options:**
+
 - (none) - Output to console/chat
 - `raid` - Output to raid chat
 - `party` - Output to party chat
@@ -70,6 +72,7 @@ Query and report buff status with flexible targeting:
 - `c ChannelName` - Output to channel
 
 **Query Examples:**
+
 - `/rabq motw` - Check Mark of the Wild (console)
 - `/rabq raid fort` - Check Fortitude to raid chat
 - `/rabq party not pws` - Check who's missing Power Word: Shield
@@ -78,8 +81,9 @@ Query and report buff status with flexible targeting:
 **Group Limits:** Numbers 1-8 (e.g., `12345` for groups 1-5)
 
 **Class Limits:** Letters for each class
+
 - `m` = Mage
-- `l` = Warlock  
+- `l` = Warlock
 - `p` = Priest
 - `r` = Rogue
 - `d` = Druid
@@ -90,5 +94,6 @@ Query and report buff status with flexible targeting:
 
 Use `not` prefix to invert queries (show who's missing the buff).
 
-![screenshot](ss.png?raw=true "screenshot")
-![screenshot2](ss2.png?raw=true "screenshot2")
+## Multiple Query Selection (v0.12.0+)
+
+RABuffs now supports combining multiple queries on a single bar. Each bar can display up to 8 different buff checks simultaneously, with proportional bar segments.
