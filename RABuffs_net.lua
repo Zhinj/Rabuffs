@@ -16,11 +16,15 @@ RAB_RA_VersionReplyMask = "([%w.]+) (%d+)[.,](%d+)";
 RAB_RA_BuffsMaskPart = "(%a%w+) (%d+)";
 
 
+-- [REFACTOR] Disabled: Global version sync via hidden channel is unused.
+-- The registration for gSyncInit was already commented out, so these functions never fire.
+-- Commenting out the function bodies to save memory from dead closures.
+--[[
 function RAB_gSync_TimerEvent()
     local h, m, i = GetGameTime();
     if (m >= 57 and GetChannelName(RAB_gSync_Channel) == 0) then
         RAB_gSync_Sent = 0;
-        for i = 7, 10 do -- Magic number: General, Trade, LocalDefense, WorldDefense, GuildRecruitment, LookingForGroup
+        for i = 7, 10 do
             if (GetChannelName(i) == 0) then
                 JoinChannelByName(RAB_gSync_Channel);
                 break;
@@ -56,6 +60,7 @@ function RAB_gSync_Init()
     end
     return "remove";
 end
+--]]
 
 --RAB_Core_Register("PLAYER_ENTERING_WORLD", "gSyncInit", RAB_gSync_Init);
 
@@ -128,7 +133,9 @@ function RAB_SendBuffData_Timer()
     end
 end
 
-RAB_Core_AddTimer(30, "buffbroadcast", RAB_SendBuffData_Timer);
+-- [REFACTOR] Disabled: No addon listens for RAB/BT messages (RAB_Chat_BuffData registration
+-- is commented out). This was broadcasting every 30s to no one, wasting CPU and bandwidth.
+--RAB_Core_AddTimer(30, "buffbroadcast", RAB_SendBuffData_Timer);
 
 function RAB_Chat_VersionCheck()
     if (string.find(arg1, RAB_RequestingVersion) ~= nil) then

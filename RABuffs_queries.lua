@@ -11,9 +11,10 @@ RAB_BuffTimers = {}; -- Name.query = expire;
 
 function RAB_ShouldRecast(unit, buffKey, isbuffed)
 	local bkey = UnitName(unit) .. "." .. buffKey;
-	if (RAB_BuffTimers[bkey] ~= nil and RAB_BuffTimers[bkey] > GetTime() and RAB_Buffs[buffKey].recast ~= nil) then
+	local now = RAB_CachedTime;
+	if (RAB_BuffTimers[bkey] ~= nil and RAB_BuffTimers[bkey] > now and RAB_Buffs[buffKey].recast ~= nil) then
 		if (isbuffed) then
-			fadetime = RAB_BuffTimers[bkey] - GetTime();
+			local fadetime = RAB_BuffTimers[bkey] - now;
 			if (fadetime < RAB_Buffs[buffKey].recast * 60) then
 				return true, fadetime;
 			end
@@ -806,7 +807,8 @@ function RAB_QueryWater(userData, needraw, needtxt)
 end
 
 function RAB_QueryDebuff(userData, needraw, needtxt)
-	local btype = RAB_Buffs[bkey].ext
+	-- [REFACTOR] Fixed: was referencing undefined 'bkey', now uses userData.buffKey
+	local btype = RAB_Buffs[userData.buffKey].ext
 	local bText = getglobal("sRAB_BuffOutput_Debuff_" ..
 			(btype == "" and "Typeless" or (btype == "SELF" and "Curable" or btype)));
 

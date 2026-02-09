@@ -34,13 +34,8 @@ function RAB_CTRA_AddOnEvent()
 end
 
 function RAB_CTRA_FindBuffKeyFromID(id)
-    local key, val; id = tonumber(id);
-    for key, val in RAB_Buffs do
-        if (val.ctraid ~= nil and val.ctraid == id) then
-            return key;
-        end
-    end
-    return nil;
+    -- [REFACTOR] O(1) lookup via pre-built reverse map instead of scanning all RAB_Buffs
+    return RAB_CTRAIDToBuffMap[tonumber(id)];
 end
 
 function RAB_CTRA_IsMT(name) -- Determines if unit is an MT.
@@ -101,5 +96,7 @@ function RAB_CTRA_IsAFK(name)
 end
 
 RAB_Core_Register("ADDON_LOADED", "ctraLoad", RAB_CTRA_CheckLoad);
-RAB_Core_Register("CHAT_MSG_CHANNEL", "ctraFilter", RAB_CTRA_ChannelEvent);
+-- [REFACTOR] Disabled: RAB_CTRA_ChannelEvent is never defined anywhere — this was registering
+-- a nil function as a handler, which would cause errors if the event ever fired.
+--RAB_Core_Register("CHAT_MSG_CHANNEL", "ctraFilter", RAB_CTRA_ChannelEvent);
 RAB_Core_Register("CHAT_MSG_ADDON", "ctraBuffTimers", RAB_CTRA_AddOnEvent);

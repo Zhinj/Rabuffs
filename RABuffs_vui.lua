@@ -2,6 +2,17 @@
 --  Handles the visual user interface as well as event-triggered routines.
 -- Version 0.10.1
 
+-- [REFACTOR] Frame reference cache to avoid repeated getglobal() + string concatenation
+RABui_FrameCache = {};
+local function RABui_GetFrame(name)
+	local f = RABui_FrameCache[name];
+	if (f == nil) then
+		f = getglobal(name);
+		RABui_FrameCache[name] = f;
+	end
+	return f;
+end
+
 RABui_BarCount = 0;
 RABui_Settings_TabCount = 4;
 
@@ -173,7 +184,7 @@ function RABui_SyncBars()
 	local shownBars = 0;
 	for i = 1, RABui_BarCount do
 		local showBar = barsToShow[i];
-		local bar = getglobal("RAB_Bar" .. i)
+		local bar = RABui_GetFrame("RAB_Bar" .. i)
 		if (showBar == nil) then
 			bar:Hide();
 		else
@@ -193,8 +204,8 @@ function RABui_SyncBars()
 			-- Set colors and visibility for bars
 			if (numQueries == 1) then
 				-- Single-query mode: use legacy Tex and Tex2
-				local tex = getglobal("RAB_Bar" .. i .. "Tex");
-				local tex2 = getglobal("RAB_Bar" .. i .. "Tex2");
+				local tex = RABui_GetFrame("RAB_Bar" .. i .. "Tex");
+				local tex2 = RABui_GetFrame("RAB_Bar" .. i .. "Tex2");
 				if (tex) then
 					tex:SetTexture("Interface\\AddOns\\RABuffs\\bar.tga");
 					tex:SetVertexColor(showBar.color[1], showBar.color[2], showBar.color[3]);
@@ -207,7 +218,7 @@ function RABui_SyncBars()
 				end
 				-- Hide extra textures if they exist
 				for j = 3, 8 do
-					local extraTex = getglobal("RAB_Bar" .. i .. "Tex" .. j);
+					local extraTex = RABui_GetFrame("RAB_Bar" .. i .. "Tex" .. j);
 					if (extraTex) then
 						extraTex:Hide();
 					end
@@ -224,7 +235,7 @@ function RABui_SyncBars()
 					else
 						texName = "RAB_Bar" .. i .. "Tex" .. j;
 					end
-					local tex = getglobal(texName);
+					local tex = RABui_GetFrame(texName);
 					if (tex) then
 						tex:SetTexture("Interface\\AddOns\\RABuffs\\bar.tga");
 					end
@@ -293,32 +304,34 @@ function RABui_SetBarValue(barid, cur, fade, max)
 		end
 	end
 
-	local bar = getglobal("RAB_Bar" .. barid);
+	local bar = RABui_GetFrame("RAB_Bar" .. barid);
 	if (bar ~= nil and (cur ~= bar.cur or max ~= bar.max or fade ~= bar.fade)) then
 		bar.cur, bar.max, bar.fade = cur, max, fade;
 		bar.isMultiQuery = false; -- Clear multi-query flag for single-query rendering
 		bar.multiQueryFading = nil; -- Clear multi-query fading data
 		
 		-- Reset texture alphas for single-query mode
-		getglobal("RAB_Bar" .. barid .. "Tex"):SetAlpha(1.0);
-		getglobal("RAB_Bar" .. barid .. "Tex2"):SetAlpha(1.0);
+		local tex1 = RABui_GetFrame("RAB_Bar" .. barid .. "Tex");
+		local tex2 = RABui_GetFrame("RAB_Bar" .. barid .. "Tex2");
+		tex1:SetAlpha(1.0);
+		tex2:SetAlpha(1.0);
 		
 		if (cur - fade > 0) then
-			getglobal("RAB_Bar" .. barid .. "Tex"):SetWidth(bar:GetWidth() * (cur - fade) / max);
+			tex1:SetWidth(bar:GetWidth() * (cur - fade) / max);
 		else
-			getglobal("RAB_Bar" .. barid .. "Tex"):SetWidth(0.01);
+			tex1:SetWidth(0.01);
 		end
 		if (cur > 0) then
-			getglobal("RAB_Bar" .. barid .. "Tex2"):SetWidth(bar:GetWidth() * cur / max);
+			tex2:SetWidth(bar:GetWidth() * cur / max);
 		else
-			getglobal("RAB_Bar" .. barid .. "Tex2"):SetWidth(0.01);
+			tex2:SetWidth(0.01);
 		end
 	end
 end
 
 function RABui_SetMultiBarValues(barid, queryValues)
 	-- queryValues is a table: { {cur=x, fade=y, max=z, color={r,g,b}}, ... }
-	local bar = getglobal("RAB_Bar" .. barid);
+	local bar = RABui_GetFrame("RAB_Bar" .. barid);
 	if (bar == nil) then
 		return;
 	end
@@ -341,7 +354,7 @@ function RABui_SetMultiBarValues(barid, queryValues)
 		else
 			texName = "RAB_Bar" .. barid .. "Tex" .. i;
 		end
-		local hideTex = getglobal(texName);
+		local hideTex = RABui_GetFrame(texName);
 		if (hideTex) then
 			hideTex:Hide();
 		end
@@ -394,7 +407,7 @@ function RABui_SetMultiBarValues(barid, queryValues)
 			texName = "RAB_Bar" .. barid .. "Tex" .. i;
 		end
 		
-		local tex = getglobal(texName);
+		local tex = RABui_GetFrame(texName);
 		if (tex ~= nil) then
 			-- Calculate proportional segment width
 			local segmentRatio = (qv.max and totalMax > 0) and (qv.max / totalMax) or 0;
@@ -444,7 +457,7 @@ function RABui_SetMultiBarValues(barid, queryValues)
 end
 
 function RABui_EnsureBarTextures(barid, numTextures)
-	local bar = getglobal("RAB_Bar" .. barid);
+	local bar = RABui_GetFrame("RAB_Bar" .. barid);
 	if (bar == nil) then
 		return;
 	end
@@ -464,14 +477,15 @@ function RABui_EnsureBarTextures(barid, numTextures)
 			texName = "RAB_Bar" .. barid .. "Tex" .. i;
 		end
 		
-		local tex = getglobal(texName);
+		local tex = RABui_GetFrame(texName);
 		
 		if (tex == nil) then
-			-- Create new texture
+			-- Create new texture and cache it
 			tex = bar:CreateTexture(texName, "BACKGROUND");
 			tex:SetTexture("Interface\\AddOns\\RABuffs\\bar.tga");
 			tex:SetSize(120, 12);
-			tex:SetAlpha(1.0); -- Ensure full opacity
+			tex:SetAlpha(1.0);
+			RABui_FrameCache[texName] = tex;
 		else
 			-- Reinitialize existing texture to ensure it has proper settings
 			if (not tex:GetTexture()) then
@@ -483,14 +497,15 @@ function RABui_EnsureBarTextures(barid, numTextures)
 end
 
 function RABui_SetBarText(barid, text)
-	local bar = getglobal("RAB_Bar" .. barid);
+	local bar = RABui_GetFrame("RAB_Bar" .. barid);
 	if bar then
 		bar:SetText(text);
 	end
 end
 
 function RABui_GetBarValue(barid)
-	return tonumber(getglobal("RAB_Bar" .. barid).cur), tonumber(getglobal("RAB_Bar" .. barid).max);
+	local bar = RABui_GetFrame("RAB_Bar" .. barid);
+	return tonumber(bar.cur), tonumber(bar.max);
 end
 
 -- Menus
@@ -625,14 +640,14 @@ end
 function RABui_OnUpdate(elapsed)
 	local i;
 
-	if (RABui_NextUpdate < GetTime()) then
+	if (RABui_NextUpdate < RAB_CachedTime) then
 		RABui_UpdateId = (RABui_UpdateId > 10 and 0 or RABui_UpdateId) + 1;
 		for i = 1, table.getn(RABui_Bars) do
 			if (math.mod(RABui_UpdateId, RABui_Bars[i].priority) == 0 or RABui_TooltipBar == i) then
 				RABui_UpdateBar(i);
 			end
 		end
-		RABui_NextUpdate = GetTime() + RABui_Settings.updateInterval;
+		RABui_NextUpdate = RAB_CachedTime + RABui_Settings.updateInterval;
 	end
 	-- local shiftstate = (IsShiftKeyDown() and 1 or 0) + (IsAltKeyDown() and 2 or 0);
 	-- if (shiftstate ~= RABui_LastShiftState) then
@@ -2182,6 +2197,7 @@ function RABui_BarRedraw()
 	this.fadetime = this.fadetime and this.fadetime or 0;
 	local barid = this:GetID();
 	local bar = RABui_Bars[barid];
+	local now = RAB_CachedTime;
 	
 	-- Check if this is a multi-query bar with flashing
 	if (this.isMultiQuery and this.multiQueryFading) then
@@ -2193,9 +2209,9 @@ function RABui_BarRedraw()
 			end
 		end
 		
-		if (hasFlashing and this.fadetime < GetTime()) then
-			this.fadetime = GetTime() + 0.04;
-			local alpha = cos(GetTime() * 180) * 0.2 + 0.5;
+		if (hasFlashing and this.fadetime < now) then
+			this.fadetime = now + 0.04;
+			local alpha = cos(now * 180) * 0.2 + 0.5;
 			
 			-- Apply flashing to all fading textures
 			for queryIdx, fadeVal in ipairs(this.multiQueryFading) do
@@ -2208,7 +2224,7 @@ function RABui_BarRedraw()
 					else
 						texName = this:GetName() .. "Tex" .. queryIdx;
 					end
-					local tex = getglobal(texName);
+					local tex = RABui_GetFrame(texName);
 					if (tex) then
 						tex:SetAlpha(alpha);
 					end
@@ -2216,9 +2232,9 @@ function RABui_BarRedraw()
 			end
 		end
 	-- Single-query bar flashing (legacy)
-	elseif (this.fade ~= nil and this.fade > 0 and this.fadetime < GetTime()) then
-		this.fadetime = GetTime() + 0.04;
-		getglobal(this:GetName() .. "Tex2"):SetAlpha(cos(GetTime() * 180) * 0.2 + 0.5);
+	elseif (this.fade ~= nil and this.fade > 0 and this.fadetime < now) then
+		this.fadetime = now + 0.04;
+		RABui_GetFrame(this:GetName() .. "Tex2"):SetAlpha(cos(now * 180) * 0.2 + 0.5);
 	end
 end
 

@@ -72,6 +72,15 @@ RAB_NumDebuffsCache = {};
 RAB_DebuffCache = {};
 RAB_DebuffLastUpdated = {};
 
+-- [REFACTOR] Reverse lookup: texture -> buffKey. Built once at init, avoids O(n) scan.
+RAB_TextureToBuffMap = {};
+-- [REFACTOR] Reverse lookup: ctraid number -> buffKey. Built once at init.
+RAB_CTRAIDToBuffMap = {};
+-- [REFACTOR] Class cache: unit -> class string. Cleared on roster change.
+RAB_ClassCache = {};
+-- [REFACTOR] Cached GetTime() value, updated once per OnUpdate tick.
+RAB_CachedTime = 0;
+
 local RestorSelfAutoCastTimeOut = 1;
 local RestorSelfAutoCast = false;
 
@@ -89,6 +98,8 @@ ptr:SetScript("OnEvent", function()
 	end
 end);
 ptr:SetScript("OnUpdate", function()
+	-- [REFACTOR] Cache GetTime() once per frame for all subsystems
+	RAB_CachedTime = GetTime();
 	if (RestorSelfAutoCast) then
 		RestorSelfAutoCastTimeOut = RestorSelfAutoCastTimeOut - arg1;
 		if (RestorSelfAutoCastTimeOut < 0) then
@@ -96,12 +107,12 @@ ptr:SetScript("OnUpdate", function()
 			SetCVar("autoSelfCast", "1");
 		end
 	end
-	if (this.timerNext ~= nil and this.timers ~= nil and this.timerNext < GetTime()) then
+	if (this.timerNext ~= nil and this.timers ~= nil and this.timerNext < RAB_CachedTime) then
 		local key, val, nt;
-		nt = GetTime() + 86400;
+		nt = RAB_CachedTime + 86400;
 		for key, val in this.timers do
-			if (val.trigger < GetTime() and val.enabled) then
-				val.trigger = GetTime() + val.interval;
+			if (val.trigger < RAB_CachedTime and val.enabled) then
+				val.trigger = RAB_CachedTime + val.interval;
 				okay = val.func();
 			end
 			nt = min(nt, val.trigger);
@@ -293,7 +304,75 @@ function RAB_StartUp()
 
 	RAB_Versions = type(RABui_Settings.keepversions) == "table" and RABui_Settings.keepversions or {};
 
+	-- [REFACTOR] Build reverse lookup tables at startup
+	RAB_BuildLookupTables();
+
 	return "remove"; -- unsubscribe event
+end
+
+-- [REFACTOR] Build one-time reverse lookup maps for O(1) access
+function RAB_BuildLookupTables()
+	for buffKey, buffData in RAB_Buffs do
+		-- Build texture -> buffKey map
+		if (buffData.identifiers ~= nil) then
+			for _, identifier in ipairs(buffData.identifiers) do
+				if (identifier.texture ~= nil and RAB_TextureToBuffMap[identifier.texture] == nil) then
+					RAB_TextureToBuffMap[identifier.texture] = buffKey;
+				end
+			end
+		end
+		-- Build ctraid -> buffKey map
+		if (buffData.ctraid ~= nil) then
+			RAB_CTRAIDToBuffMap[buffData.ctraid] = buffKey;
+		end
+	end
+end
+
+-- [REFACTOR] Clear stale caches when group roster changes
+function RAB_OnRosterChange()
+	-- Clear class cache (units may have changed)
+	RAB_ClassCache = {};
+
+	-- Prune buff/debuff caches for units that no longer exist
+	local unit;
+	for unit in RAB_BuffCache do
+		if (not UnitExists(unit)) then
+			RAB_BuffCache[unit] = nil;
+			RAB_BuffLastUpdated[unit] = nil;
+			RAB_NumBuffsCache[unit] = nil;
+		end
+	end
+	for unit in RAB_DebuffCache do
+		if (not UnitExists(unit)) then
+			RAB_DebuffCache[unit] = nil;
+			RAB_DebuffLastUpdated[unit] = nil;
+			RAB_NumDebuffsCache[unit] = nil;
+		end
+	end
+end
+
+-- [REFACTOR] Periodic cleanup of expired timer entries (runs every 60s)
+function RAB_PruneExpiredTimers()
+	local now = GetTime();
+	local key;
+	-- Prune expired RAB_BuffTimers entries
+	for key in RAB_BuffTimers do
+		if (type(RAB_BuffTimers[key]) == "number" and RAB_BuffTimers[key] > 0 and RAB_BuffTimers[key] < now) then
+			RAB_BuffTimers[key] = nil;
+		end
+	end
+	-- Prune expired RAB_CastLog entries
+	for key in RAB_CastLog do
+		if (RAB_CastLog[key] < time()) then
+			RAB_CastLog[key] = nil;
+		end
+	end
+	-- Prune expired RAB_PendingRes entries
+	for key in RAB_PendingRes do
+		if (RAB_PendingRes[key] < now) then
+			RAB_PendingRes[key] = nil;
+		end
+	end
 end
 
 function RAB_CleanUp()
@@ -333,6 +412,11 @@ RAB_Core_Register("PLAYER_ENTERING_WORLD", "groupStatus", RAB_GroupStatusChange)
 RAB_Core_Register("CHAT_MSG_SYSTEM", "groupStatus", RAB_GroupStatusChange);
 RAB_Core_Register("VARIABLES_LOADED", "load", RAB_StartUp);
 RAB_Core_Register("PLAYER_LOGOUT", "unload", RAB_CleanUp);
+-- [REFACTOR] Clear caches on roster changes to free stale entries
+RAB_Core_Register("RAID_ROSTER_UPDATE", "cacheClean", RAB_OnRosterChange);
+RAB_Core_Register("PARTY_MEMBERS_CHANGED", "cacheClean", RAB_OnRosterChange);
+-- [REFACTOR] Periodic timer to prune expired entries from BuffTimers/CastLog/PendingRes
+RAB_Core_AddTimer(60, "pruneTimers", RAB_PruneExpiredTimers);
 
 -- Profile Management Functions
 function RAB_GetProfileKey(profileName)
@@ -380,11 +464,18 @@ function RAB_SaveProfile(profileName)
 	local profileKey = RAB_GetProfileKey(profileName);
 	RABui_Settings.Layout[profileKey] = {};
 	
-	-- Deep copy current bars
+	-- [REFACTOR] Fixed: Deep copy including nested tables (color, buffKeys, excludeNames, queryColors)
 	for i, bar in ipairs(RABui_Bars) do
 		RABui_Settings.Layout[profileKey][i] = {};
 		for key, val in pairs(bar) do
-			RABui_Settings.Layout[profileKey][i][key] = val;
+			if (type(val) == "table") then
+				RABui_Settings.Layout[profileKey][i][key] = {};
+				for k2, v2 in pairs(val) do
+					RABui_Settings.Layout[profileKey][i][key][k2] = v2;
+				end
+			else
+				RABui_Settings.Layout[profileKey][i][key] = val;
+			end
 		end
 	end
 	
@@ -452,11 +543,18 @@ function RAB_LoadProfile(profileName)
 	-- Clear current bars
 	RABui_Bars = {};
 	
-	-- Deep copy profile bars
+	-- [REFACTOR] Fixed: Deep copy including nested tables (color, buffKeys, excludeNames, queryColors)
 	for i, bar in ipairs(RABui_Settings.Layout[profileKey]) do
 		RABui_Bars[i] = {};
 		for key, val in pairs(bar) do
-			RABui_Bars[i][key] = val;
+			if (type(val) == "table") then
+				RABui_Bars[i][key] = {};
+				for k2, v2 in pairs(val) do
+					RABui_Bars[i][key][k2] = v2;
+				end
+			else
+				RABui_Bars[i][key] = val;
+			end
 		end
 	end
 	
@@ -922,24 +1020,9 @@ function RAB_SanitizeTexture(texture)
 end
 
 function RAB_TextureToBuff(texture)
-	-- Convert texture to buff key, if known.
+	-- Convert texture to buff key via lookup table.
 	texture = RAB_SanitizeTexture(texture);
-
-	for buffKey, buffData in RAB_Buffs do
-		-- check for missing identifiers unless it's a special buff
-		if buffData.identifiers == nil then
-			if buffData.sfunc == nil then
-				RAB_Print("Buff " .. buffKey .. " has no identifiers!", "warn")
-			end
-		else
-			for _, identifier in ipairs(buffData.identifiers) do
-				if (texture == identifier.texture) then
-					return buffKey;
-				end
-			end
-		end
-	end
-	return nil;
+	return RAB_TextureToBuffMap[texture];
 end
 
 function RAB_IsBuffUp(unit, buffKey)
@@ -965,10 +1048,15 @@ function RAB_IsBuffUp(unit, buffKey)
 end
 
 function RAB_UnitClass(unit)
-	-- Localization/nil workaround.
+	-- Localization/nil workaround. Cached per unit, cleared on roster change.
+	if (RAB_ClassCache[unit] ~= nil) then
+		return RAB_ClassCache[unit];
+	end
 	local _, ec = UnitClass(unit);
 	ec = (ec ~= nil) and ec or "Mage";
-	return strsub(ec, 1, 1) .. strlower(strsub(ec, 2));
+	local result = strsub(ec, 1, 1) .. strlower(strsub(ec, 2));
+	RAB_ClassCache[unit] = result;
+	return result;
 end
 
 function RAB_UnitIsDead(unit)
@@ -1038,7 +1126,7 @@ function RAB_CacheUnitBuffs(unit)
 			break ;
 		end
 	end
-	RAB_BuffLastUpdated[unit] = GetTime();
+	RAB_BuffLastUpdated[unit] = RAB_CachedTime;
 end
 
 function RAB_CacheUnitDebuffs(unit)
@@ -1070,7 +1158,7 @@ function RAB_CacheUnitDebuffs(unit)
 			break
 		end
 	end
-	RAB_DebuffLastUpdated[unit] = GetTime();
+	RAB_DebuffLastUpdated[unit] = RAB_CachedTime;
 end
 
 local function checkForMatch(buffData, searchTexture, identifier)
@@ -1101,7 +1189,7 @@ function isUnitBuffUp(unit, identifier)
 		return false;
 	end
 
-	local cTime = GetTime();
+	local cTime = RAB_CachedTime;
 
 	local recentlyCastBuffUpdate = RABui_LastBuffEvent > 0 and RABui_LastBuffEvent > cTime - 3 -- unless we casted a buff in the last 3 second
 	if recentlyCastBuffUpdate and RAB_BuffLastUpdated[unit] and RAB_BuffLastUpdated[unit] > RABui_LastBuffEvent then
@@ -1141,7 +1229,7 @@ function isUnitDebuffUp(unit, identifier)
 		return false;
 	end
 
-	if RAB_DebuffCache[unit] == nil or (RAB_DebuffLastUpdated[unit] and RAB_DebuffLastUpdated[unit] < GetTime() - 1) then
+	if RAB_DebuffCache[unit] == nil or (RAB_DebuffLastUpdated[unit] and RAB_DebuffLastUpdated[unit] < RAB_CachedTime - 1) then
 		RAB_CacheUnitDebuffs(unit)
 	end
 
