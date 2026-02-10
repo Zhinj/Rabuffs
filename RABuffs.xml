@@ -1098,20 +1098,23 @@
                     </OnLoad>
                 </Scripts>
             </Button>
-            <CheckButton name="RAB_BarDetail_FillOnAny" inherits="OptionsCheckButtonTemplate">
+            <Button name="RAB_BarDetail_FillStyle" inherits="UIDropDownMenuTemplate">
+                <Size>
+                    <AbsDimension x="125" y="32"/>
+                </Size>
                 <Anchors>
-                    <Anchor point="TOPLEFT" relativeTo="RAB_BarDetail_FillOnAnyLabel" relativePoint="TOPRIGHT">
+                    <Anchor point="TOPLEFT">
                         <Offset>
-                            <AbsDimension x="16" y="10"/>
+                            <AbsDimension x="75" y="-125"/>
                         </Offset>
                     </Anchor>
                 </Anchors>
                 <Scripts>
-                    <OnClick>
-                        RAB_BarDetail_FillOnAny_State = this:GetChecked();
-                    </OnClick>
+                    <OnLoad>
+                        RABui_BarDetail_FillStyle_OnLoad();
+                    </OnLoad>
                 </Scripts>
-            </CheckButton>
+            </Button>
             <CheckButton name="RAB_BarDetail_SelfLimit" inherits="OptionsCheckButtonTemplate">
                 <Anchors>
                     <Anchor point="TOPLEFT" relativeTo="RAB_BarDetail_SelfLimitLabel" relativePoint="TOPRIGHT">

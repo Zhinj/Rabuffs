@@ -121,7 +121,10 @@ sRAB_LOCALIZATION["enUS"] = function(ui, output, spells)
         sRAB_Settings_BarDetail_GroupsSome = "Groups %s";
         sRAB_Settings_BarDetail_Remove = "Remove";
         sRAB_Settings_BarDetail_UseOnClickLabel = "Use consume/cast buff on click";
-        sRAB_Settings_BarDetail_FillOnAnyLabel = "Fill on any";
+        sRAB_Settings_BarDetail_FillOnAnyLabel = "Fill Style:";
+        sRAB_Settings_BarDetail_FillStyle_Segments = "Segments";
+        sRAB_Settings_BarDetail_FillStyle_FillOnAny = "Fill on any";
+        sRAB_Settings_BarDetail_FillStyle_Exclusive = "Exclusive";
         sRAB_Settings_BarDetail_PlayerExcludesLabel = "Exclude names (separate with ,):"
 
         sRAB_Settings_BarDetail_OutputTarget = "Output to:";

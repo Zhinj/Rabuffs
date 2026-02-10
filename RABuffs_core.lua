@@ -233,15 +233,15 @@ function RAB_StartUp()
 		if not bar.selfLimit then
 			bar.selfLimit = false; -- default to false
 		end
-		-- default fillOnAny to false
-		if bar.fillOnAny == nil then
-			bar.fillOnAny = false;
-		end
-
-		-- convert from old cmd format if necessary
-		if bar.cmd then
-			local _, _, buffKey, groups, classes = string.find(bar.cmd, "(%a+) ?(%d*) ?(%a*)");
-
+	-- Migration: convert old fillOnAny boolean to new fillStyle string
+	if bar.fillOnAny ~= nil then
+		-- Legacy support: convert old boolean to new string
+		bar.fillStyle = bar.fillOnAny and "Fill on any" or "Segments";
+		bar.fillOnAny = nil; -- Remove old field
+	end
+	-- default fillStyle to "Segments"
+	if not bar.fillStyle then
+		bar.fillStyle = "Segments";
 			-- remove self from start of name if present and set selfLimit to true
 			if string.find(buffKey, "self") == 1 then
 				buffKey = string.sub(buffKey, 5);

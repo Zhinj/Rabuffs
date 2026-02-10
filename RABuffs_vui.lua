@@ -38,8 +38,9 @@ RAB_BarDetail_SelectedClasses = {
 };
 RAB_BarDetail_SelectedType = ""; -- AddBar Bar Type
 RAB_BarDetail_SelectedBuffKeys = {}; -- Multiple buff keys for multi-query support
+RAB_BarDetail_SelectedBuffKeysOrder = {}; -- Tracks the order of selection
 RAB_BarDetail_Output = "";
-RAB_BarDetail_FillOnAny_State = false; -- Manual state tracker for FillOnAny checkbox (since GetChecked() doesn't work in Classic)
+RAB_BarDetail_FillStyleValue = "Segments"; -- "Segments", "Fill on any", or "Exclusive"
 RAB_BarDetail_EditBarId = 0;     -- 0 = new bar
 
 RAB_LoadShow = "";
@@ -708,9 +709,10 @@ end
 
 function RABui_UpdateMultiBar(barid, buffKeys)
 	-- Update a bar with multiple queries
-	local fillOnAny = RABui_Bars[barid].fillOnAny or false;
+	local fillStyle = RABui_Bars[barid].fillStyle or "Segments";
 	
-	if (fillOnAny) then
+	-- "Fill on any" and "Exclusive" modes both use OR logic; they differ in casting behavior
+	if (fillStyle == "Fill on any" or fillStyle == "Exclusive") then
 		-- FILL ON ANY MODE: Count unique players who have ANY of the buffs
 		local playerHasAnyBuff = {}; -- Track which players have at least one buff
 		local playerFadeTimes = {}; -- Track fade times for players
@@ -1223,6 +1225,58 @@ function RABui_BarOnClick()
 		local doOut = true;
 		local castSuccessful = false;
 		
+		-- Check for Exclusive mode: if the fill condition is already met, don't try casting
+		local fillStyle = RABui_Bars[id].fillStyle or "Segments";
+		if (fillStyle == "Exclusive") then
+			-- In Exclusive mode, check if the "Fill on any" condition is already met
+			-- (i.e., everyone is covered by at least one of the buff queries)
+			local playerHasAnyBuff = {}; -- Track which players have at least one buff
+			local totalPlayers = 0;
+			
+			for i, buffKey in ipairs(buffKeys) do
+				local buffData = RAB_Buffs[buffKey];
+				if (buffData ~= nil) then
+					local tempUserData = {};
+					for k, v in pairs(RABui_Bars[id]) do
+						tempUserData[k] = v;
+					end
+					tempUserData.buffKey = buffKey;
+					
+					local buffed, fading, total, misc, txthead, hashead, txt, hastxt, invert, raw = 
+						RAB_CallRaidBuffCheck(tempUserData, true, false);
+					
+					-- Track total players (use first query's count)
+					if (i == 1) then
+						totalPlayers = total or 0;
+					end
+					
+					if (raw) then
+						for j, playerData in ipairs(raw) do
+							if (playerData.buffed) then
+								playerHasAnyBuff[playerData.name] = true;
+							end
+						end
+					end
+				end
+			end
+			
+			-- If everyone is covered, don't allow casting (prevent cascade)
+			local coveredCount = 0;
+			for playerName, hasBuff in pairs(playerHasAnyBuff) do
+				if (hasBuff) then
+					coveredCount = coveredCount + 1;
+				end
+			end
+			
+			if (coveredCount >= totalPlayers and totalPlayers > 0) then
+				-- Bar is already full/satisfied, don't cast anything (exclusive to existing buffs)
+				if (RABui_Settings.showsampleoutputonclick) then
+					RAB_BuffCheckOutput(RABui_Bars[id], "CONSOLE", IsShiftKeyDown());
+				end
+				return;
+			end
+		end
+		
 		-- Try each buff key in order
 		for _, buffKey in ipairs(buffKeys) do
 			local buffData = RAB_Buffs[buffKey];
@@ -1271,11 +1325,12 @@ function RABui_BarDetail_SetBarData(id)
 		RAB_BarDetail_Output = "RAID";
 		RAB_BarDetail_UseOnClick:SetChecked(true);
 		RAB_BarDetail_SelfLimit:SetChecked(false);
-		RAB_BarDetail_FillOnAny_State = false; -- Initialize state tracker
-		if (RAB_BarDetail_FillOnAny) then
-			RAB_BarDetail_FillOnAny:SetChecked(false);
+		RAB_BarDetail_FillStyleValue = "Segments"; -- Initialize to default
+		if (RAB_BarDetail_FillStyle) then
+			UIDropDownMenu_SetText(sRAB_Settings_BarDetail_FillStyle_Segments, RAB_BarDetail_FillStyle);
 		end
 		RAB_BarDetail_SelectedBuffKeys = {}; -- Initialize empty for new bars
+		RAB_BarDetail_SelectedBuffKeysOrder = {}; -- Clear order tracking
 	else
 		RAB_BarDetail_Header:SetText(sRAB_AddBarFrame_EditBar);
 		RAB_BarDetail_Accept:SetText(sRAB_AddBarFrame_Edit);
@@ -1284,8 +1339,10 @@ function RABui_BarDetail_SetBarData(id)
 		-- Get buffKeys (could be single or multiple)
 		local buffKeys = RABui_GetBuffKeysFromBar(id);
 		RAB_BarDetail_SelectedBuffKeys = {};
+		RAB_BarDetail_SelectedBuffKeysOrder = {}; -- Restore order from buffKeys
 		for _, bk in ipairs(buffKeys) do
 			RAB_BarDetail_SelectedBuffKeys[bk] = true;
+			table.insert(RAB_BarDetail_SelectedBuffKeysOrder, bk);
 		end
 		
 		buffKey = RABui_Bars[id].buffKey; -- For legacy support
@@ -1305,10 +1362,22 @@ function RABui_BarDetail_SetBarData(id)
 		end
 
 		RAB_BarDetail_UseOnClick:SetChecked(RABui_Bars[id].useOnClick);
-		if (RAB_BarDetail_FillOnAny) then
-			local fillVal = RABui_Bars[id].fillOnAny or false;
-			RAB_BarDetail_FillOnAny_State = fillVal; -- Set state tracker
-			RAB_BarDetail_FillOnAny:SetChecked(fillVal);
+		
+		-- Handle fillStyle dropdown
+		local fillStyle = RABui_Bars[id].fillStyle or "Segments";
+		RAB_BarDetail_FillStyleValue = fillStyle;
+		if (RAB_BarDetail_FillStyle) then
+			local displayText = "";
+			if (fillStyle == "Segments") then
+				displayText = sRAB_Settings_BarDetail_FillStyle_Segments;
+			elseif (fillStyle == "Fill on any") then
+				displayText = sRAB_Settings_BarDetail_FillStyle_FillOnAny;
+			elseif (fillStyle == "Exclusive") then
+				displayText = sRAB_Settings_BarDetail_FillStyle_Exclusive;
+			else
+				displayText = sRAB_Settings_BarDetail_FillStyle_Segments; -- Default
+			end
+			UIDropDownMenu_SetText(displayText, RAB_BarDetail_FillStyle);
 		end
 
 		-- check for excludeNames not being nil or empty list
@@ -1602,6 +1671,41 @@ function RABui_BarDetail_WhisperAccept(pa1, pa2, pa3)
 	end
 end
 
+function RABui_BarDetail_FillStyle_OnLoad()
+	UIDropDownMenu_Initialize(this, RABui_BarDetail_FillStyle_Initialize);
+	UIDropDownMenu_SetWidth(125, this);
+end
+
+function RABui_BarDetail_FillStyle_Initialize()
+	local key, val, i;
+	if (UIDROPDOWNMENU_MENU_LEVEL == 1) then
+		UIDropDownMenu_AddButton({
+			text = sRAB_Settings_BarDetail_FillStyle_Segments,
+			value = "Segments",
+			func = RABui_BarDetail_FillStyle_OnClick,
+			checked = (RAB_BarDetail_FillStyleValue == "Segments")
+		});
+		UIDropDownMenu_AddButton({
+			text = sRAB_Settings_BarDetail_FillStyle_FillOnAny,
+			value = "Fill on any",
+			func = RABui_BarDetail_FillStyle_OnClick,
+			checked = (RAB_BarDetail_FillStyleValue == "Fill on any")
+		});
+		UIDropDownMenu_AddButton({
+			text = sRAB_Settings_BarDetail_FillStyle_Exclusive,
+			value = "Exclusive",
+			func = RABui_BarDetail_FillStyle_OnClick,
+			checked = (RAB_BarDetail_FillStyleValue == "Exclusive")
+		});
+	end
+end
+
+function RABui_BarDetail_FillStyle_OnClick()
+	UIDropDownMenu_SetSelectedValue(RAB_BarDetail_FillStyle, this.value);
+	RAB_BarDetail_FillStyleValue = this.value;
+	ToggleDropDownMenu(1, nil, RAB_BarDetail_FillStyle);
+end
+
 function RABui_GameTooltip_SetUnitBuff(obj, unit, bId)
 	obj.SetUnitBuffOrig(obj, unit, bId);
 	local tex = tostring(RAB_TextureToBuff(tostring(UnitBuff(unit, bId))));
@@ -1701,8 +1805,17 @@ function RABui_AddFrameDropDown_OnClick()
 		-- Multi-select mode: toggle the buff in the selection
 		if (RAB_BarDetail_SelectedBuffKeys[this.value]) then
 			RAB_BarDetail_SelectedBuffKeys[this.value] = nil;
+			-- Remove from order tracking
+			for i, buffKey in ipairs(RAB_BarDetail_SelectedBuffKeysOrder) do
+				if (buffKey == this.value) then
+					table.remove(RAB_BarDetail_SelectedBuffKeysOrder, i);
+					break;
+				end
+			end
 		else
 			RAB_BarDetail_SelectedBuffKeys[this.value] = true;
+			-- Add to order tracking
+			table.insert(RAB_BarDetail_SelectedBuffKeysOrder, this.value);
 		end
 		-- Also set as primary type
 		if (table.getn(RAB_BarDetail_SelectedBuffKeys) > 0) then
@@ -1711,6 +1824,7 @@ function RABui_AddFrameDropDown_OnClick()
 	else
 		-- Single-select mode: replace selection
 		RAB_BarDetail_SelectedBuffKeys = { [this.value] = true };
+		RAB_BarDetail_SelectedBuffKeysOrder = { this.value }; -- Single selection
 		RAB_BarDetail_SelectedType = this.value;
 		-- Close dropdown on regular click
 		ToggleDropDownMenu(1, nil, RAB_BarDetail_Type);
@@ -1771,10 +1885,10 @@ function RABui_AddBar_Accept()
 		classes = "";
 	end
 
-	-- Gather selected buff keys (support for multiple queries)
+	-- Gather selected buff keys in the order they were selected
 	local selectedBuffKeys = {};
-	for buffKey, selected in RAB_BarDetail_SelectedBuffKeys do
-		if (selected and RAB_Buffs[buffKey] ~= nil) then
+	for _, buffKey in ipairs(RAB_BarDetail_SelectedBuffKeysOrder) do
+		if (RAB_BarDetail_SelectedBuffKeys[buffKey] and RAB_Buffs[buffKey] ~= nil) then
 			table.insert(selectedBuffKeys, buffKey);
 		end
 	end
@@ -1793,8 +1907,8 @@ function RABui_AddBar_Accept()
 			end
 		end
 
-		-- Get fillOnAny state from manual tracker
-		local fillOnAnyValue = RAB_BarDetail_FillOnAny_State or false;
+		-- Get fillStyle from dropdown
+		local fillStyle = RAB_BarDetail_FillStyleValue or "Segments";
 		
 		RABui_AddBar(
 				selectedBuffKeys,
@@ -1806,7 +1920,7 @@ function RABui_AddBar_Accept()
 				RAB_BarDetail_Output,
 				RAB_BarDetail_PlayerExcludes:GetText(),
 				RAB_BarDetail_UseOnClick:GetChecked(),
-				fillOnAnyValue);
+				fillStyle);
 	end
 end
 
@@ -1818,7 +1932,7 @@ function split(str, delimiter)
 	return result
 end
 
-function RABui_AddBar(buffKey, selfLimit, groups, classes, barlabel, barpriority, outputTarget, excludeNamesStr, useOnClick, fillOnAny)
+function RABui_AddBar(buffKey, selfLimit, groups, classes, barlabel, barpriority, outputTarget, excludeNamesStr, useOnClick, fillStyle)
 	local excludeNames = {};
 	if (excludeNamesStr ~= nil and excludeNamesStr ~= "") then
 		excludeNames = split(excludeNamesStr, ",")
@@ -1830,11 +1944,17 @@ function RABui_AddBar(buffKey, selfLimit, groups, classes, barlabel, barpriority
 		useOnClick = useOnClick == 1;
 	end
 
-	if not fillOnAny then
-		fillOnAny = false;
-	elseif type(fillOnAny) == "number" then
-		fillOnAny = fillOnAny == 1;
+	-- Handle fillStyle: convert legacy boolean to string, default to "Segments"
+	if not fillStyle then
+		fillStyle = "Segments";
+	elseif type(fillStyle) == "boolean" then
+		-- Legacy support: convert boolean to string
+		fillStyle = fillStyle and "Fill on any" or "Segments";
+	elseif type(fillStyle) == "number" then
+		-- Legacy support: convert number to string
+		fillStyle = fillStyle == 1 and "Fill on any" or "Segments";
 	end
+	-- If fillStyle is already a string, use it as-is
 
 	-- Support both single buffKey (string) and multiple buffKeys (table)
 	local buffKeys = buffKey;
@@ -1869,7 +1989,7 @@ function RABui_AddBar(buffKey, selfLimit, groups, classes, barlabel, barpriority
 					out = outputTarget,
 					excludeNames = excludeNames,
 					useOnClick = useOnClick,
-					fillOnAny = fillOnAny,
+					fillStyle = fillStyle,
 					queryColors = {} -- Colors for each query
 				});
 		-- Initialize queryColors for multi-query bars
@@ -1884,9 +2004,16 @@ function RABui_AddBar(buffKey, selfLimit, groups, classes, barlabel, barpriority
 		RABui_Bars[RAB_BarDetail_EditBarId].buffKeys = buffKeys;
 		-- Initialize queryColors for multi-query bars
 		if (table.getn(buffKeys) > 1) then
-			RABui_Bars[RAB_BarDetail_EditBarId].queryColors = {};
-			for i = 1, table.getn(buffKeys) do
-				RABui_Bars[RAB_BarDetail_EditBarId].queryColors[i] = { 1, 1, 1 }; -- Initialize to white (bar's default color)
+			-- Check if we need to resize queryColors (only reinit if count changed)
+			local existingColors = RABui_Bars[RAB_BarDetail_EditBarId].queryColors;
+			if (not existingColors or table.getn(existingColors) ~= table.getn(buffKeys)) then
+				-- Buff count changed, reset colors to white
+				RABui_Bars[RAB_BarDetail_EditBarId].queryColors = {};
+				for i = 1, table.getn(buffKeys) do
+					RABui_Bars[RAB_BarDetail_EditBarId].queryColors[i] = { 1, 1, 1 }; -- Initialize to white
+				end
+			else
+				-- Keep existing colors if count is the same
 			end
 		else
 			RABui_Bars[RAB_BarDetail_EditBarId].queryColors = {};
@@ -1899,7 +2026,7 @@ function RABui_AddBar(buffKey, selfLimit, groups, classes, barlabel, barpriority
 		RABui_Bars[RAB_BarDetail_EditBarId].out = outputTarget;
 		RABui_Bars[RAB_BarDetail_EditBarId].excludeNames = excludeNames;
 		RABui_Bars[RAB_BarDetail_EditBarId].useOnClick = useOnClick;
-		RABui_Bars[RAB_BarDetail_EditBarId].fillOnAny = fillOnAny;
+		RABui_Bars[RAB_BarDetail_EditBarId].fillStyle = fillStyle;
 		RABui_SyncBars();
 	end
 end
