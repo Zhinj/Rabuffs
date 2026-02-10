@@ -40,7 +40,7 @@ RAB_BarDetail_SelectedType = ""; -- AddBar Bar Type
 RAB_BarDetail_SelectedBuffKeys = {}; -- Multiple buff keys for multi-query support
 RAB_BarDetail_SelectedBuffKeysOrder = {}; -- Tracks the order of selection
 RAB_BarDetail_Output = "";
-RAB_BarDetail_FillStyleValue = "Segments"; -- "Segments", "Fill on any", or "Exclusive"
+RAB_BarDetail_FillStyleValue = "Total"; -- "Total", "Segments", "Fill on any", or "Exclusive"
 RAB_BarDetail_EditBarId = 0;     -- 0 = new bar
 
 RAB_LoadShow = "";
@@ -441,13 +441,8 @@ function RABui_SetMultiBarValues(barid, queryValues)
 				fillWidth = 0.01;
 			end
 			
-			-- Set color: use query color directly (not multiplied by bar color which darkens it)
-			if (qv.color) then
-				tex:SetVertexColor(qv.color[1], qv.color[2], qv.color[3]);
-			else
-				-- If no query color, use bar color
-				tex:SetVertexColor(barColor[1], barColor[2], barColor[3]);
-			end
+			-- Set color: use bar's main color for all segments
+			tex:SetVertexColor(barColor[1], barColor[2], barColor[3]);
 			
 			-- Reset anchoring - clear and re-anchor for this segment
 			tex:ClearAllPoints();
@@ -721,10 +716,61 @@ end
 
 function RABui_UpdateMultiBar(barid, buffKeys)
 	-- Update a bar with multiple queries
-	local fillStyle = RABui_Bars[barid].fillStyle or "Segments";
+	local fillStyle = RABui_Bars[barid].fillStyle or "Total";
+	
+	-- "Total" mode: combine all query counts into a single fill bar
+	if (fillStyle == "Total") then
+		local totalBuffed = 0;
+		local totalFading = 0;
+		local totalMax = 0;
+		local firstBuffColor = nil;
+		
+		for i, buffKey in ipairs(buffKeys) do
+			-- Create temporary userData for this buffKey
+			local tempUserData = {};
+			for k, v in RABui_Bars[barid] do
+				tempUserData[k] = v;
+			end
+			tempUserData.buffKey = buffKey;
+			
+			-- Get buff check for this query
+			local buffed, fading, total, misc = RAB_CallRaidBuffCheck(tempUserData, false, false);
+			
+			-- Accumulate totals across all queries
+			totalBuffed = totalBuffed + (buffed or 0);
+			totalFading = totalFading + (fading or 0);
+			totalMax = totalMax + (total or 0);
+			
+			-- Get first buff's color for the bar
+			if (i == 1) then
+				local buffData = RAB_Buffs[buffKey];
+				firstBuffColor = (buffData and buffData.color) or { 1, 1, 1 };
+			end
+		end
+		
+		-- Create a single query value for the combined result
+		local queryValues = {
+			{
+				cur = totalBuffed,
+				fade = totalFading,
+				max = totalMax
+			}
+		};
+		
+		-- Update multi-bar display with single unsegmented bar
+		RABui_SetMultiBarValues(barid, queryValues);
+		
+		-- Update label
+		RABui_Bars[barid].extralabel = "";
+		
+		local bartext = RABui_Bars[barid].label;
+		if (RABui_TooltipBar == barid) then
+			bartext = totalBuffed .. " / " .. totalMax .. (totalMax > 0 and " (" .. floor(totalBuffed * 100 / totalMax) .. "%)" or "");
+		end
+		RABui_SetBarText(barid, bartext);
 	
 	-- "Fill on any" and "Exclusive" modes both use OR logic; they differ in casting behavior
-	if (fillStyle == "Fill on any" or fillStyle == "Exclusive") then
+	elseif (fillStyle == "Fill on any" or fillStyle == "Exclusive") then
 		-- FILL ON ANY MODE: Count unique players who have ANY of the buffs
 		local playerHasAnyBuff = {}; -- Track which players have at least one buff
 		local playerFadeTimes = {}; -- Track fade times for players
@@ -799,8 +845,7 @@ function RABui_UpdateMultiBar(barid, buffKeys)
 			{
 				cur = playersWithAnyBuff,
 				fade = minFadeTime or 0,
-				max = totalPlayers,
-				color = (RABui_Bars[barid].queryColors and RABui_Bars[barid].queryColors[1]) or firstBuffColor
+				max = totalPlayers
 			}
 		};
 		
@@ -836,12 +881,10 @@ function RABui_UpdateMultiBar(barid, buffKeys)
 			
 			local buffData = RAB_Buffs[buffKey];
 			if (buffData) then
-				local colorToUse = (RABui_Bars[barid].queryColors and RABui_Bars[barid].queryColors[i]) or { 0.5, 0.5, 0.5 };
 				table.insert(queryValues, {
 					cur = buffed,
 					fade = fading,
-					max = total,
-					color = colorToUse
+					max = total
 				});
 				totalBuffed = totalBuffed + buffed;
 				totalFading = totalFading + fading;
@@ -871,18 +914,8 @@ function RABui_ChangeBarColor_Done()
 			buffKeys = { buffKeys };
 		end
 		
-		-- Always save to main color
+		-- Save to main color
 		RABui_Bars[RABui_ccBar].color = { r, g, b };
-		
-		-- For multi-query bars, apply color to all segments
-		if (table.getn(buffKeys) > 1) then
-			if not RABui_Bars[RABui_ccBar].queryColors then
-				RABui_Bars[RABui_ccBar].queryColors = {};
-			end
-			for i = 1, table.getn(buffKeys) do
-				RABui_Bars[RABui_ccBar].queryColors[i] = { r, g, b };
-			end
-		end
 		
 		RABui_SyncBars();
 	end
@@ -895,13 +928,8 @@ function RABui_ChangeBarColor_Cancel(prev)
 			buffKeys = { buffKeys };
 		end
 		
-		-- For multi-query bars, restore all segment colors
-		if (table.getn(buffKeys) > 1 and prev) then
-			RABui_Bars[RABui_ccBar].queryColors = prev;
-		else
-			-- Single-query bar: restore main color
-			RABui_Bars[RABui_ccBar].color = prev;
-		end
+		-- Restore main color
+		RABui_Bars[RABui_ccBar].color = prev;
 		RABui_SyncBars();
 	end
 end
@@ -1337,9 +1365,9 @@ function RABui_BarDetail_SetBarData(id)
 		RAB_BarDetail_Output = "RAID";
 		RAB_BarDetail_UseOnClick:SetChecked(true);
 		RAB_BarDetail_SelfLimit:SetChecked(false);
-		RAB_BarDetail_FillStyleValue = "Segments"; -- Initialize to default
+		RAB_BarDetail_FillStyleValue = "Total"; -- Initialize to default
 		if (RAB_BarDetail_FillStyle) then
-			UIDropDownMenu_SetText(sRAB_Settings_BarDetail_FillStyle_Segments, RAB_BarDetail_FillStyle);
+			UIDropDownMenu_SetText(sRAB_Settings_BarDetail_FillStyle_Total, RAB_BarDetail_FillStyle);
 		end
 		RAB_BarDetail_SelectedBuffKeys = {}; -- Initialize empty for new bars
 		RAB_BarDetail_SelectedBuffKeysOrder = {}; -- Clear order tracking
@@ -1380,14 +1408,16 @@ function RABui_BarDetail_SetBarData(id)
 		RAB_BarDetail_FillStyleValue = fillStyle;
 		if (RAB_BarDetail_FillStyle) then
 			local displayText = "";
-			if (fillStyle == "Segments") then
+			if (fillStyle == "Total") then
+				displayText = sRAB_Settings_BarDetail_FillStyle_Total;
+			elseif (fillStyle == "Segments") then
 				displayText = sRAB_Settings_BarDetail_FillStyle_Segments;
 			elseif (fillStyle == "Fill on any") then
 				displayText = sRAB_Settings_BarDetail_FillStyle_FillOnAny;
 			elseif (fillStyle == "Exclusive") then
 				displayText = sRAB_Settings_BarDetail_FillStyle_Exclusive;
 			else
-				displayText = sRAB_Settings_BarDetail_FillStyle_Segments; -- Default
+				displayText = sRAB_Settings_BarDetail_FillStyle_Total; -- Default to Total
 			end
 			UIDropDownMenu_SetText(displayText, RAB_BarDetail_FillStyle);
 		end
@@ -1691,6 +1721,12 @@ end
 function RABui_BarDetail_FillStyle_Initialize()
 	local key, val, i;
 	if (UIDROPDOWNMENU_MENU_LEVEL == 1) then
+		UIDropDownMenu_AddButton({
+			text = sRAB_Settings_BarDetail_FillStyle_Total,
+			value = "Total",
+			func = RABui_BarDetail_FillStyle_OnClick,
+			checked = (RAB_BarDetail_FillStyleValue == "Total")
+		});
 		UIDropDownMenu_AddButton({
 			text = sRAB_Settings_BarDetail_FillStyle_Segments,
 			value = "Segments",
@@ -2001,35 +2037,12 @@ function RABui_AddBar(buffKey, selfLimit, groups, classes, barlabel, barpriority
 					out = outputTarget,
 					excludeNames = excludeNames,
 					useOnClick = useOnClick,
-					fillStyle = fillStyle,
-					queryColors = {} -- Colors for each query
+					fillStyle = fillStyle
 				});
-		-- Initialize queryColors for multi-query bars
-		if (table.getn(buffKeys) > 1) then
-			for i = 1, table.getn(buffKeys) do
-				RABui_Bars[table.getn(RABui_Bars)].queryColors[i] = { 1, 1, 1 }; -- Initialize to white (bar's default color)
-			end
-		end
 		RABui_SyncBars();
 	else
 		RABui_Bars[RAB_BarDetail_EditBarId].buffKey = primaryBuffKey;
 		RABui_Bars[RAB_BarDetail_EditBarId].buffKeys = buffKeys;
-		-- Initialize queryColors for multi-query bars
-		if (table.getn(buffKeys) > 1) then
-			-- Check if we need to resize queryColors (only reinit if count changed)
-			local existingColors = RABui_Bars[RAB_BarDetail_EditBarId].queryColors;
-			if (not existingColors or table.getn(existingColors) ~= table.getn(buffKeys)) then
-				-- Buff count changed, reset colors to white
-				RABui_Bars[RAB_BarDetail_EditBarId].queryColors = {};
-				for i = 1, table.getn(buffKeys) do
-					RABui_Bars[RAB_BarDetail_EditBarId].queryColors[i] = { 1, 1, 1 }; -- Initialize to white
-				end
-			else
-				-- Keep existing colors if count is the same
-			end
-		else
-			RABui_Bars[RAB_BarDetail_EditBarId].queryColors = {};
-		end
 		RABui_Bars[RAB_BarDetail_EditBarId].selfLimit = selfLimit;
 		RABui_Bars[RAB_BarDetail_EditBarId].groups = groups;
 		RABui_Bars[RAB_BarDetail_EditBarId].classes = classes;
@@ -2318,12 +2331,8 @@ function RABui_Settings_BarLine_SwatchOnClick(id)
 		buffKeys = { buffKeys };
 	end
 	
-	-- For multi-query bars, store queryColors; for single-query, store main color
-	if (table.getn(buffKeys) > 1) then
-		ColorPickerFrame.previousValues = RABui_Bars[id].queryColors or {};
-	else
-		ColorPickerFrame.previousValues = RABui_Bars[id].color;
-	end
+	-- Store main color for previous value in color picker
+	ColorPickerFrame.previousValues = RABui_Bars[id].color or { 1, 1, 1 };
 	
 	-- Set up color picker callbacks
 	ColorPickerFrame.func = RABui_ChangeBarColor_Done;

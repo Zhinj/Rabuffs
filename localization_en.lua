@@ -122,6 +122,7 @@ sRAB_LOCALIZATION["enUS"] = function(ui, output, spells)
         sRAB_Settings_BarDetail_Remove = "Remove";
         sRAB_Settings_BarDetail_UseOnClickLabel = "Use consume/cast buff on click";
         sRAB_Settings_BarDetail_FillOnAnyLabel = "Fill Style:";
+        sRAB_Settings_BarDetail_FillStyle_Total = "Total";
         sRAB_Settings_BarDetail_FillStyle_Segments = "Segments";
         sRAB_Settings_BarDetail_FillStyle_FillOnAny = "Fill on any";
         sRAB_Settings_BarDetail_FillStyle_Exclusive = "Exclusive";
