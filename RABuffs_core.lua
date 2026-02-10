@@ -242,33 +242,43 @@ function RAB_StartUp()
 	-- default fillStyle to "Segments"
 	if not bar.fillStyle then
 		bar.fillStyle = "Segments";
-			-- remove self from start of name if present and set selfLimit to true
-			if string.find(buffKey, "self") == 1 then
-				buffKey = string.sub(buffKey, 5);
+	end
+
+	-- Normalize legacy buff key values if present. Use existing bar.buffKey or bar.cmd when available.
+	local buffKey = nil;
+	if bar.buffKey and type(bar.buffKey) == "string" then
+		buffKey = bar.buffKey;
+	elseif bar.cmd and type(bar.cmd) == "string" then
+		buffKey = bar.cmd;
+	end
+
+	if buffKey then
+		-- remove leading 'self' prefix
+		if string.sub(buffKey,1,4) == "self" then
+			buffKey = string.sub(buffKey, 5);
+			bar.selfLimit = true;
+		end
+
+		if buffKey == "spiritzanza" then
+			buffKey = "spiritofzanza";
+		end
+
+		if buffKey == "fortitude" then
+			buffKey = "elixirfortitude";
+		end
+
+		-- look if old "self" or "selfbuffonly" or "wepbuffonly" type is set on the buff buffKey
+		local buff = RAB_Buffs[buffKey];
+		if buff and buff.type then
+			if buff.type == "self" or buff.type == "selfbuffonly" or buff.type == "wepbuffonly" then
 				bar.selfLimit = true;
 			end
-
-			if buffKey == "spiritzanza" then
-				buffKey = "spiritofzanza";
-			end
-
-			if buffKey == "fortitude" then
-				buffKey = "elixirfortitude";
-			end
-
-			-- look if old "self" or "selfbuffonly" or "wepbuffonly" type is set on the buff buffKey
-			local buff = RAB_Buffs[buffKey];
-			if buff and buff.type then
-				if buff.type == "self" or buff.type == "selfbuffonly" or buff.type == "wepbuffonly" then
-					bar.selfLimit = true;
-				end
-			end
-
-			bar.buffKey = buffKey; -- key of the buff in RAB_Buffs
-			bar.groups = groups;
-			bar.classes = classes;
-			bar.cmd = nil;
 		end
+
+		bar.buffKey = buffKey; -- key of the buff in RAB_Buffs
+		-- preserve existing groups/classes (may be nil); they will be defaulted below if needed
+		bar.cmd = nil;
+	end
 
 		if not bar.classes then
 			bar.classes = "";
@@ -767,6 +777,14 @@ function RAB_DoSendMessage(st, target)
 	-- Get a string, send a string
 	local autoClearAFK = GetCVar("autoClearAFK");
 	SetCVar("autoClearAFK", 0);
+
+	-- Guard: ensure target is a valid string. Default to RAID if nil to avoid string.find errors.
+	if (not target) then
+		target = "RAID";
+	end
+	if (type(target) ~= "string") then
+		target = tostring(target);
+	end
 	if (target == "RAID" or target == "RAID_WARNING" or target == "GUILD" or target == "OFFICER" or target == "PARTY" or target == "SAY") then
 		SendChatMessage(st, target);
 	elseif (string.find(target, "CHANNEL:(%w+)") ~= nil) then
@@ -812,8 +830,10 @@ function RAB_GroupMember(userData, i)
 		end
 		_, _, group = GetRaidRosterInfo(i);
 		if (UnitExists(u) and RAB_UnitClass(u) ~= nil) then
-			if (userData.groups == "" or string.find(userData.groups, tostring(group)) ~= nil) then
-				if (userData.classes == "" or string.find(userData.classes, RAB_ClassShort[RAB_UnitClass(u)]) ~= nil) then
+			local groups_ok = (userData.groups == nil) or (userData.groups == "") or (string.find(tostring(userData.groups), tostring(group)) ~= nil)
+			local classes_ok = (userData.classes == nil) or (userData.classes == "") or (string.find(tostring(userData.classes), RAB_ClassShort[RAB_UnitClass(u)]) ~= nil)
+			if (groups_ok) then
+				if (classes_ok) then
 					return i, u, group;
 				end
 			end

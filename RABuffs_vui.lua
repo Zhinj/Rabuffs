@@ -497,17 +497,29 @@ function RABui_EnsureBarTextures(barid, numTextures)
 		
 		if (tex == nil) then
 			-- Create new texture and cache it
-			tex = bar:CreateTexture(texName, "BACKGROUND");
-			tex:SetTexture("Interface\\AddOns\\RABuffs\\bar.tga");
-			tex:SetSize(120, 12);
-			tex:SetAlpha(1.0);
-			RABui_FrameCache[texName] = tex;
+			tex = nil;
+			-- Attempt to create a named texture; if that fails, create an unnamed one
+			if (bar.CreateTexture) then
+				tex = bar:CreateTexture(texName, "BACKGROUND");
+				if (not tex) then
+					tex = bar:CreateTexture(nil, "BACKGROUND");
+				end
+			end
+			if (tex) then
+				if (tex.SetTexture) then tex:SetTexture("Interface\\AddOns\\RABuffs\\bar.tga") end
+				if (tex.SetSize) then tex:SetSize(120, 12) elseif (tex.SetWidth and tex.SetHeight) then tex:SetWidth(120); tex:SetHeight(12); end
+				if (tex.SetAlpha) then tex:SetAlpha(1.0) end
+				RABui_FrameCache[texName] = tex;
+			else
+				-- Creation failed; log a warning and skip this texture
+				RAB_Print("Failed to create texture " .. texName .. " for bar " .. tostring(barid), "warn");
+			end
 		else
 			-- Reinitialize existing texture to ensure it has proper settings
-			if (not tex:GetTexture()) then
+			if (tex and tex.GetTexture and not tex:GetTexture()) and tex.SetTexture then
 				tex:SetTexture("Interface\\AddOns\\RABuffs\\bar.tga");
 			end
-			tex:SetAlpha(1.0);
+			if (tex and tex.SetAlpha) then tex:SetAlpha(1.0) end
 		end
 	end
 end
