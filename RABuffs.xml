@@ -877,12 +877,12 @@
            parent="RAB_Settings_TabFrame3"
            frameStrata="HIGH">
         <Size>
-            <AbsDimension x="250" y="400"/>
+            <AbsDimension x="250" y="450"/>
         </Size>
         <Anchors>
             <Anchor point="TOPLEFT" relativeTo="RAB_Settings_TabFrame3" relativePoint="TOPRIGHT">
                 <Offset>
-                    <AbsDimension x="10" y="65"/>
+                    <AbsDimension x="10" y="70"/>
                 </Offset>
             </Anchor>
         </Anchors>
@@ -962,12 +962,12 @@
                 </FontString>
                 <FontString name="RAB_BarDetail_FillOnAnyLabel" inherits="GameFontNormal" justifyH="LEFT">
                     <Size>
-                        <AbsDimension x="150" y="10"/>
+                        <AbsDimension x="75" y="16"/>
                     </Size>
                     <Anchors>
                         <Anchor point="TOPLEFT" relativeTo="RAB_BarDetailFrame" relativePoint="TOPLEFT">
                             <Offset>
-                                <AbsDimension x="20" y="-122"/>
+                                <AbsDimension x="20" y="-130"/>
                             </Offset>
                         </Anchor>
                     </Anchors>
@@ -979,7 +979,7 @@
                     <Anchors>
                         <Anchor point="TOPLEFT" relativeTo="RAB_BarDetailFrame" relativePoint="TOPLEFT">
                             <Offset>
-                                <AbsDimension x="20" y="-140"/>
+                                <AbsDimension x="20" y="-160"/>
                             </Offset>
                         </Anchor>
                     </Anchors>
@@ -1004,7 +1004,7 @@
                     <Anchors>
                         <Anchor point="TOPLEFT" relativeTo="RAB_BarDetailFrame" relativePoint="TOPLEFT">
                             <Offset>
-                                <AbsDimension x="20" y="-240"/>
+                                <AbsDimension x="20" y="-280"/>
                             </Offset>
                         </Anchor>
                     </Anchors>
