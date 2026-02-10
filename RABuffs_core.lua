@@ -233,6 +233,10 @@ function RAB_StartUp()
 		if not bar.selfLimit then
 			bar.selfLimit = false; -- default to false
 		end
+		-- default fillOnAny to false
+		if bar.fillOnAny == nil then
+			bar.fillOnAny = false;
+		end
 
 		-- convert from old cmd format if necessary
 		if bar.cmd then

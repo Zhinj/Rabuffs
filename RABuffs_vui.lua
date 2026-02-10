@@ -16,7 +16,7 @@ end
 RABui_BarCount = 0;
 RABui_Settings_TabCount = 4;
 
-RABui_ccBarColorId = 0; -- Bar ID of the change color dialog bar.
+RABui_ccBar = 0;        -- Bar ID of the change color dialog bar
 RABui_MenuBar = nil;    -- Bar ID of the bar menu bar.
 
 RABui_LastBuffEvent = 0;
@@ -39,6 +39,7 @@ RAB_BarDetail_SelectedClasses = {
 RAB_BarDetail_SelectedType = ""; -- AddBar Bar Type
 RAB_BarDetail_SelectedBuffKeys = {}; -- Multiple buff keys for multi-query support
 RAB_BarDetail_Output = "";
+RAB_BarDetail_FillOnAny_State = false; -- Manual state tracker for FillOnAny checkbox (since GetChecked() doesn't work in Classic)
 RAB_BarDetail_EditBarId = 0;     -- 0 = new bar
 
 RAB_LoadShow = "";
@@ -305,6 +306,17 @@ function RABui_SetBarValue(barid, cur, fade, max)
 	end
 
 	local bar = RABui_GetFrame("RAB_Bar" .. barid);
+	
+	-- Always clear multi-query textures when in single-query mode
+	-- (this ensures they're hidden even if buffered values haven't changed)
+	-- Hide all extra textures (3-8) that may have been used for multi-query
+	for i = 3, 8 do
+		local extraTex = RABui_GetFrame("RAB_Bar" .. barid .. "Tex" .. i);
+		if (extraTex) then
+			extraTex:Hide();
+		end
+	end
+	
 	if (bar ~= nil and (cur ~= bar.cur or max ~= bar.max or fade ~= bar.fade)) then
 		bar.cur, bar.max, bar.fade = cur, max, fade;
 		bar.isMultiQuery = false; -- Clear multi-query flag for single-query rendering
@@ -315,6 +327,12 @@ function RABui_SetBarValue(barid, cur, fade, max)
 		local tex2 = RABui_GetFrame("RAB_Bar" .. barid .. "Tex2");
 		tex1:SetAlpha(1.0);
 		tex2:SetAlpha(1.0);
+		
+		-- Reset texture anchors (clear multi-query positioning)
+		tex1:ClearAllPoints();
+		tex1:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0);
+		tex2:ClearAllPoints();
+		tex2:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0);
 		
 		if (cur - fade > 0) then
 			tex1:SetWidth(bar:GetWidth() * (cur - fade) / max);
@@ -422,12 +440,9 @@ function RABui_SetMultiBarValues(barid, queryValues)
 				fillWidth = 0.01;
 			end
 			
-			-- Set color: blend bar color with query color (multiply)
+			-- Set color: use query color directly (not multiplied by bar color which darkens it)
 			if (qv.color) then
-				local r = qv.color[1] * barColor[1];
-				local g = qv.color[2] * barColor[2];
-				local b = qv.color[3] * barColor[3];
-				tex:SetVertexColor(r, g, b);
+				tex:SetVertexColor(qv.color[1], qv.color[2], qv.color[3]);
 			else
 				-- If no query color, use bar color
 				tex:SetVertexColor(barColor[1], barColor[2], barColor[3]);
@@ -693,65 +708,188 @@ end
 
 function RABui_UpdateMultiBar(barid, buffKeys)
 	-- Update a bar with multiple queries
-	local queryValues = {};
-	local totalBuffed = 0;
-	local totalFading = 0;
-	local totalPeople = 0;
+	local fillOnAny = RABui_Bars[barid].fillOnAny or false;
 	
-	for i, buffKey in ipairs(buffKeys) do
-		-- Create temporary userData for this buffKey
-		local tempUserData = {};
-		for k, v in RABui_Bars[barid] do
-			tempUserData[k] = v;
-		end
-		tempUserData.buffKey = buffKey;
+	if (fillOnAny) then
+		-- FILL ON ANY MODE: Count unique players who have ANY of the buffs
+		local playerHasAnyBuff = {}; -- Track which players have at least one buff
+		local playerFadeTimes = {}; -- Track fade times for players
+		local totalPlayers = 0;
+		local playersWithAnyBuff = 0;
+		local minFadeTime = nil;
+		local firstBuffColor = nil;
 		
-		-- Get buff check for this query
-		local buffed, fading, total, misc = RAB_CallRaidBuffCheck(tempUserData, false, false);
-		
-		local buffData = RAB_Buffs[buffKey];
-		if (buffData) then
-			table.insert(queryValues, {
-				cur = buffed,
-				fade = fading,
-				max = total,
-				color = (RABui_Bars[barid].queryColors and RABui_Bars[barid].queryColors[i]) or buffData.color or { 0.5, 0.5, 0.5 }
-			});
-			totalBuffed = totalBuffed + buffed;
-			totalFading = totalFading + fading;
-			totalPeople = totalPeople + total;
+		for i, buffKey in ipairs(buffKeys) do
+			-- Create temporary userData for this buffKey
+			local tempUserData = {};
+			for k, v in RABui_Bars[barid] do
+				tempUserData[k] = v;
+			end
+			tempUserData.buffKey = buffKey;
+			
+			-- Get raw data for this query to check individual players
+			local buffed, fading, total, misc, txthead, hashead, txt, hastxt, invert, raw = 
+				RAB_CallRaidBuffCheck(tempUserData, true, false);
+			
+			-- Use the first query's total as the authoritative player count
+			if (i == 1) then
+				totalPlayers = total or 0;
+			end
+			
+			local buffData = RAB_Buffs[buffKey];
+			if (i == 1 and buffData) then
+				firstBuffColor = buffData.color or { 0.5, 0.5, 0.5 };
+			end
+			
+			if (raw) then
+				for j, playerData in ipairs(raw) do
+					local playerName = playerData.name;
+					
+					-- Check if this player has this buff
+					if (playerData.buffed) then
+						if (not playerHasAnyBuff[playerName]) then
+							playerHasAnyBuff[playerName] = true;
+							playersWithAnyBuff = playersWithAnyBuff + 1;
+						end
+						
+						-- Track the minimum fade time across all buffs for this player
+						if (playerData.fade and playerData.fade > 0) then
+							if (not playerFadeTimes[playerName] or playerData.fade < playerFadeTimes[playerName]) then
+								playerFadeTimes[playerName] = playerData.fade;
+							end
+						end
+					end
+				end
+			end
 		end
+		
+		-- Calculate how many players are fading (have at least one buff fading)
+		local fadingCount = 0;
+		for playerName, fadeTime in pairs(playerFadeTimes) do
+			if (fadeTime > 0) then
+				fadingCount = fadingCount + 1;
+			end
+		end
+		
+		-- Find minimum fade time for flashing effect
+		for playerName, fadeTime in pairs(playerFadeTimes) do
+			if (fadeTime > 0) then
+				if (not minFadeTime or fadeTime < minFadeTime) then
+					minFadeTime = fadeTime;
+				end
+			end
+		end
+		
+		-- Create a single query value for the combined result
+		local queryValues = {
+			{
+				cur = playersWithAnyBuff,
+				fade = minFadeTime or 0,
+				max = totalPlayers,
+				color = (RABui_Bars[barid].queryColors and RABui_Bars[barid].queryColors[1]) or firstBuffColor
+			}
+		};
+		
+		-- Update multi-bar display with the combined result
+		RABui_SetMultiBarValues(barid, queryValues);
+		
+		-- Update label
+		RABui_Bars[barid].extralabel = "";
+		
+		local bartext = RABui_Bars[barid].label;
+		if (RABui_TooltipBar == barid) then
+			bartext = playersWithAnyBuff .. " / " .. totalPlayers .. 
+				(totalPlayers > 0 and " (" .. floor(playersWithAnyBuff * 100 / totalPlayers) .. "%)" or "");
+		end
+		RABui_SetBarText(barid, bartext);
+	else
+		-- NORMAL SEGMENTED MODE: Original logic
+		local queryValues = {};
+		local totalBuffed = 0;
+		local totalFading = 0;
+		local totalPeople = 0;
+		
+		for i, buffKey in ipairs(buffKeys) do
+			-- Create temporary userData for this buffKey
+			local tempUserData = {};
+			for k, v in RABui_Bars[barid] do
+				tempUserData[k] = v;
+			end
+			tempUserData.buffKey = buffKey;
+			
+			-- Get buff check for this query
+			local buffed, fading, total, misc = RAB_CallRaidBuffCheck(tempUserData, false, false);
+			
+			local buffData = RAB_Buffs[buffKey];
+			if (buffData) then
+				local colorToUse = (RABui_Bars[barid].queryColors and RABui_Bars[barid].queryColors[i]) or { 0.5, 0.5, 0.5 };
+				table.insert(queryValues, {
+					cur = buffed,
+					fade = fading,
+					max = total,
+					color = colorToUse
+				});
+				totalBuffed = totalBuffed + buffed;
+				totalFading = totalFading + fading;
+				totalPeople = totalPeople + total;
+			end
+		end
+		
+		-- Update multi-bar display
+		RABui_SetMultiBarValues(barid, queryValues);
+		
+		-- Update label with total counts
+		RABui_Bars[barid].extralabel = "";
+		
+		local bartext = RABui_Bars[barid].label;
+		if (RABui_TooltipBar == barid) then
+			bartext = totalBuffed .. " / " .. totalPeople .. (totalPeople > 0 and " (" .. floor(totalBuffed * 100 / totalPeople) .. "%)" or "");
+		end
+		RABui_SetBarText(barid, bartext);
 	end
-	
-	-- Update multi-bar display
-	RABui_SetMultiBarValues(barid, queryValues);
-	
-	-- Update label with total counts
-	local extraLabel = "";
-	if (totalPeople > 0) then
-		extraLabel = " (" .. totalBuffed .. "/" .. totalPeople .. ")";
-	end
-	RABui_Bars[barid].extralabel = extraLabel;
-	
-	local bartext = RABui_Bars[barid].label .. extraLabel;
-	if (RABui_TooltipBar == barid) then
-		bartext = totalBuffed .. " / " .. totalPeople .. (totalPeople > 0 and " (" .. floor(totalBuffed * 100 / totalPeople) .. "%)" or "");
-	end
-	RABui_SetBarText(barid, bartext);
 end
 
 function RABui_ChangeBarColor_Done()
 	if (RABui_ccBar ~= 0) then
 		local r, g, b = ColorPickerFrame:GetColorRGB();
+		local buffKeys = RABui_Bars[RABui_ccBar].buffKeys or RABui_Bars[RABui_ccBar].buffKey;
+		if (type(buffKeys) == "string") then
+			buffKeys = { buffKeys };
+		end
+		
+		-- Always save to main color
 		RABui_Bars[RABui_ccBar].color = { r, g, b };
+		
+		-- For multi-query bars, apply color to all segments
+		if (table.getn(buffKeys) > 1) then
+			if not RABui_Bars[RABui_ccBar].queryColors then
+				RABui_Bars[RABui_ccBar].queryColors = {};
+			end
+			for i = 1, table.getn(buffKeys) do
+				RABui_Bars[RABui_ccBar].queryColors[i] = { r, g, b };
+			end
+		end
+		
 		RABui_SyncBars();
 	end
 end
 
 function RABui_ChangeBarColor_Cancel(prev)
-	RABui_Bars[RABui_ccBar].color = prev
-	RABui_ccBar = 0;
-	RABui_SyncBars();
+	if (RABui_ccBar ~= 0) then
+		local buffKeys = RABui_Bars[RABui_ccBar].buffKeys or RABui_Bars[RABui_ccBar].buffKey;
+		if (type(buffKeys) == "string") then
+			buffKeys = { buffKeys };
+		end
+		
+		-- For multi-query bars, restore all segment colors
+		if (table.getn(buffKeys) > 1 and prev) then
+			RABui_Bars[RABui_ccBar].queryColors = prev;
+		else
+			-- Single-query bar: restore main color
+			RABui_Bars[RABui_ccBar].color = prev;
+		end
+		RABui_SyncBars();
+	end
 end
 
 -- Helper functions for multiple query support
@@ -1133,6 +1271,10 @@ function RABui_BarDetail_SetBarData(id)
 		RAB_BarDetail_Output = "RAID";
 		RAB_BarDetail_UseOnClick:SetChecked(true);
 		RAB_BarDetail_SelfLimit:SetChecked(false);
+		RAB_BarDetail_FillOnAny_State = false; -- Initialize state tracker
+		if (RAB_BarDetail_FillOnAny) then
+			RAB_BarDetail_FillOnAny:SetChecked(false);
+		end
 		RAB_BarDetail_SelectedBuffKeys = {}; -- Initialize empty for new bars
 	else
 		RAB_BarDetail_Header:SetText(sRAB_AddBarFrame_EditBar);
@@ -1163,6 +1305,11 @@ function RABui_BarDetail_SetBarData(id)
 		end
 
 		RAB_BarDetail_UseOnClick:SetChecked(RABui_Bars[id].useOnClick);
+		if (RAB_BarDetail_FillOnAny) then
+			local fillVal = RABui_Bars[id].fillOnAny or false;
+			RAB_BarDetail_FillOnAny_State = fillVal; -- Set state tracker
+			RAB_BarDetail_FillOnAny:SetChecked(fillVal);
+		end
 
 		-- check for excludeNames not being nil or empty list
 		if (RABui_Bars[id].excludeNames ~= nil) then
@@ -1646,6 +1793,9 @@ function RABui_AddBar_Accept()
 			end
 		end
 
+		-- Get fillOnAny state from manual tracker
+		local fillOnAnyValue = RAB_BarDetail_FillOnAny_State or false;
+		
 		RABui_AddBar(
 				selectedBuffKeys,
 				RAB_BarDetail_SelfLimit:GetChecked(),
@@ -1655,7 +1805,8 @@ function RABui_AddBar_Accept()
 				11 - RAB_BarDetail_Priority:GetValue(),
 				RAB_BarDetail_Output,
 				RAB_BarDetail_PlayerExcludes:GetText(),
-				RAB_BarDetail_UseOnClick:GetChecked());
+				RAB_BarDetail_UseOnClick:GetChecked(),
+				fillOnAnyValue);
 	end
 end
 
@@ -1667,7 +1818,7 @@ function split(str, delimiter)
 	return result
 end
 
-function RABui_AddBar(buffKey, selfLimit, groups, classes, barlabel, barpriority, outputTarget, excludeNamesStr, useOnClick)
+function RABui_AddBar(buffKey, selfLimit, groups, classes, barlabel, barpriority, outputTarget, excludeNamesStr, useOnClick, fillOnAny)
 	local excludeNames = {};
 	if (excludeNamesStr ~= nil and excludeNamesStr ~= "") then
 		excludeNames = split(excludeNamesStr, ",")
@@ -1679,6 +1830,12 @@ function RABui_AddBar(buffKey, selfLimit, groups, classes, barlabel, barpriority
 		useOnClick = useOnClick == 1;
 	end
 
+	if not fillOnAny then
+		fillOnAny = false;
+	elseif type(fillOnAny) == "number" then
+		fillOnAny = fillOnAny == 1;
+	end
+
 	-- Support both single buffKey (string) and multiple buffKeys (table)
 	local buffKeys = buffKey;
 	if (type(buffKey) == "string") then
@@ -1687,7 +1844,7 @@ function RABui_AddBar(buffKey, selfLimit, groups, classes, barlabel, barpriority
 	
 	-- Primary buffKey for legacy support
 	local primaryBuffKey = buffKeys[1];
-
+	
 	if (RAB_BarDetail_EditBarId == 0) then
 		-- check for nil values before adding
 		if (barlabel == nil) then
@@ -1712,12 +1869,28 @@ function RABui_AddBar(buffKey, selfLimit, groups, classes, barlabel, barpriority
 					out = outputTarget,
 					excludeNames = excludeNames,
 					useOnClick = useOnClick,
+					fillOnAny = fillOnAny,
 					queryColors = {} -- Colors for each query
 				});
+		-- Initialize queryColors for multi-query bars
+		if (table.getn(buffKeys) > 1) then
+			for i = 1, table.getn(buffKeys) do
+				RABui_Bars[table.getn(RABui_Bars)].queryColors[i] = { 1, 1, 1 }; -- Initialize to white (bar's default color)
+			end
+		end
 		RABui_SyncBars();
 	else
 		RABui_Bars[RAB_BarDetail_EditBarId].buffKey = primaryBuffKey;
 		RABui_Bars[RAB_BarDetail_EditBarId].buffKeys = buffKeys;
+		-- Initialize queryColors for multi-query bars
+		if (table.getn(buffKeys) > 1) then
+			RABui_Bars[RAB_BarDetail_EditBarId].queryColors = {};
+			for i = 1, table.getn(buffKeys) do
+				RABui_Bars[RAB_BarDetail_EditBarId].queryColors[i] = { 1, 1, 1 }; -- Initialize to white (bar's default color)
+			end
+		else
+			RABui_Bars[RAB_BarDetail_EditBarId].queryColors = {};
+		end
 		RABui_Bars[RAB_BarDetail_EditBarId].selfLimit = selfLimit;
 		RABui_Bars[RAB_BarDetail_EditBarId].groups = groups;
 		RABui_Bars[RAB_BarDetail_EditBarId].classes = classes;
@@ -1726,6 +1899,7 @@ function RABui_AddBar(buffKey, selfLimit, groups, classes, barlabel, barpriority
 		RABui_Bars[RAB_BarDetail_EditBarId].out = outputTarget;
 		RABui_Bars[RAB_BarDetail_EditBarId].excludeNames = excludeNames;
 		RABui_Bars[RAB_BarDetail_EditBarId].useOnClick = useOnClick;
+		RABui_Bars[RAB_BarDetail_EditBarId].fillOnAny = fillOnAny;
 		RABui_SyncBars();
 	end
 end
@@ -1998,11 +2172,28 @@ end
 function RABui_Settings_BarLine_SwatchOnClick(id)
 	id = id + FauxScrollFrame_GetOffset(RAB_Settings_LayoutScrollBar);
 	RABui_ccBar = id;
+	
+	-- Store previous colors for undo
+	local buffKeys = RABui_Bars[id].buffKeys or RABui_Bars[id].buffKey;
+	if (type(buffKeys) == "string") then
+		buffKeys = { buffKeys };
+	end
+	
+	-- For multi-query bars, store queryColors; for single-query, store main color
+	if (table.getn(buffKeys) > 1) then
+		ColorPickerFrame.previousValues = RABui_Bars[id].queryColors or {};
+	else
+		ColorPickerFrame.previousValues = RABui_Bars[id].color;
+	end
+	
+	-- Set up color picker callbacks
 	ColorPickerFrame.func = RABui_ChangeBarColor_Done;
 	ColorPickerFrame.cancelFunc = RABui_ChangeBarColor_Cancel;
-	ColorPickerFrame.previousValues = RABui_Bars[id].color;
+	
+	-- Display current color
 	ColorSwatch:SetTexture(RABui_Bars[id].color[1], RABui_Bars[id].color[2], RABui_Bars[id].color[3]);
 	ColorPickerFrame:SetColorRGB(RABui_Bars[id].color[1], RABui_Bars[id].color[2], RABui_Bars[id].color[3]);
+	
 	ColorPickerFrame:Show();
 end
 
@@ -2013,10 +2204,43 @@ function RABui_Settings_Layout_SetBar(ui, id)
 		local userData = RABui_Bars[id];
 		getglobal("RAB_Settings_BarLine" .. ui):Show();
 		getglobal("RAB_Settings_BarLine" .. ui .. "Name"):SetText(userData.label);
+		
+		-- Display the bar color (for multi-query bars, all segments use the same color now)
 		getglobal("RAB_Settings_BarLine" .. ui .. "SwatchNormalTexture"):SetVertexColor(userData.color[1],
 				userData.color[2], userData.color[3]);
-		local buffKey = RAB_Buffs[userData.buffKey] ~= nil and RAB_Buffs[userData.buffKey].name or userData.buffKey;
-		getglobal("RAB_Settings_BarLine" .. ui .. "Query"):SetText(buffKey);
+		
+		-- Display buff names - comma separated list for multi-query bars
+		local buffKeys = userData.buffKeys or userData.buffKey;
+		if (type(buffKeys) == "string") then
+			buffKeys = { buffKeys };
+		end
+		
+		local displayText = "";
+		local maxWidth = 150; -- Maximum display width in pixels (approximate)
+		
+		if (table.getn(buffKeys) > 1) then
+			-- Multi-query: show comma-separated list
+			for i, buffKey in ipairs(buffKeys) do
+				local buffName = RAB_Buffs[buffKey] ~= nil and RAB_Buffs[buffKey].name or buffKey;
+				if (displayText == "") then
+					displayText = buffName;
+				else
+					local testText = displayText .. ", " .. buffName;
+					-- Truncate at 30 characters
+					if (string.len(testText) > 30) then
+						displayText = displayText .. "...";
+						break;
+					else
+						displayText = testText;
+					end
+				end
+			end
+		else
+			-- Single query
+			displayText = RAB_Buffs[userData.buffKey] ~= nil and RAB_Buffs[userData.buffKey].name or userData.buffKey;
+		end
+		
+		getglobal("RAB_Settings_BarLine" .. ui .. "Query"):SetText(displayText);
 		if (id == table.getn(RABui_Bars)) then
 			getglobal("RAB_Settings_BarLine" .. ui .. "MoveDown"):Disable();
 		else
@@ -2177,6 +2401,9 @@ function RABui_Localize()
 	RAB_BarDetail_PriorityHigh:SetText(sRAB_Settings_BarDetail_PriorityMore);
 	RAB_BarDetail_PlayerExcludesLabel:SetText(sRAB_Settings_BarDetail_PlayerExcludesLabel);
 	RAB_BarDetail_UseOnClickLabel:SetText(sRAB_Settings_BarDetail_UseOnClickLabel);
+	if (RAB_BarDetail_FillOnAnyLabel) then
+		RAB_BarDetail_FillOnAnyLabel:SetText(sRAB_Settings_BarDetail_FillOnAnyLabel);
+	end
 	RAB_BarDetail_SelfLimitLabel:SetText(sRAB_Settings_BarDetail_SelfLimitLabel);
 
 	RABui_UpdateTitle();

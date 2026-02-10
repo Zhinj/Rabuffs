@@ -960,6 +960,18 @@
                         </Anchor>
                     </Anchors>
                 </FontString>
+                <FontString name="RAB_BarDetail_FillOnAnyLabel" inherits="GameFontNormal" justifyH="LEFT">
+                    <Size>
+                        <AbsDimension x="150" y="10"/>
+                    </Size>
+                    <Anchors>
+                        <Anchor point="TOPLEFT" relativeTo="RAB_BarDetailFrame" relativePoint="TOPLEFT">
+                            <Offset>
+                                <AbsDimension x="20" y="-122"/>
+                            </Offset>
+                        </Anchor>
+                    </Anchors>
+                </FontString>
                 <FontString name="RAB_BarDetail_LimitsText" inherits="GameFontNormal" justifyH="LEFT">
                     <Size>
                         <AbsDimension x="220" y="16"/>
@@ -967,7 +979,7 @@
                     <Anchors>
                         <Anchor point="TOPLEFT" relativeTo="RAB_BarDetailFrame" relativePoint="TOPLEFT">
                             <Offset>
-                                <AbsDimension x="20" y="-125"/>
+                                <AbsDimension x="20" y="-140"/>
                             </Offset>
                         </Anchor>
                     </Anchors>
@@ -1086,6 +1098,20 @@
                     </OnLoad>
                 </Scripts>
             </Button>
+            <CheckButton name="RAB_BarDetail_FillOnAny" inherits="OptionsCheckButtonTemplate">
+                <Anchors>
+                    <Anchor point="TOPLEFT" relativeTo="RAB_BarDetail_FillOnAnyLabel" relativePoint="TOPRIGHT">
+                        <Offset>
+                            <AbsDimension x="16" y="10"/>
+                        </Offset>
+                    </Anchor>
+                </Anchors>
+                <Scripts>
+                    <OnClick>
+                        RAB_BarDetail_FillOnAny_State = this:GetChecked();
+                    </OnClick>
+                </Scripts>
+            </CheckButton>
             <CheckButton name="RAB_BarDetail_SelfLimit" inherits="OptionsCheckButtonTemplate">
                 <Anchors>
                     <Anchor point="TOPLEFT" relativeTo="RAB_BarDetail_SelfLimitLabel" relativePoint="TOPRIGHT">
