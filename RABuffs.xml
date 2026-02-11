@@ -6,8 +6,6 @@
         </Size>
         <Layers>
             <Layer level="BACKGROUND">
-                <!-- Base textures will be dynamically created as Tex1, Tex2, etc for multi-query support -->
-                <!-- Keep legacy Tex and Tex2 for backwards compatibility with custom code -->
                 <Texture name="$parentTex">
                     <Size>
                         <AbsDimension x="120" y="12"/>

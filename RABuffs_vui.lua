@@ -2,8 +2,7 @@
 --  Handles the visual user interface as well as event-triggered routines.
 -- Version 0.10.1
 
--- [REFACTOR] Frame reference cache to avoid repeated getglobal() + string concatenation
-RABui_FrameCache = {};
+RABui_FrameCache = {}; -- Cache for UI frames and textures to avoid repeated global lookups
 local function RABui_GetFrame(name)
 	local f = RABui_FrameCache[name];
 	if (f == nil) then
@@ -16,7 +15,7 @@ end
 RABui_BarCount = 0;
 RABui_Settings_TabCount = 4;
 
-RABui_ccBar = 0;        -- Bar ID of the change color dialog bar
+RABui_ccBarColorId = 0; -- Bar ID of the change color dialog bar.
 RABui_MenuBar = nil;    -- Bar ID of the bar menu bar.
 
 RABui_LastBuffEvent = 0;
@@ -907,29 +906,29 @@ function RABui_UpdateMultiBar(barid, buffKeys)
 end
 
 function RABui_ChangeBarColor_Done()
-	if (RABui_ccBar ~= 0) then
+	if (RABui_ccBarColorId ~= 0) then
 		local r, g, b = ColorPickerFrame:GetColorRGB();
-		local buffKeys = RABui_Bars[RABui_ccBar].buffKeys or RABui_Bars[RABui_ccBar].buffKey;
+		local buffKeys = RABui_Bars[RABui_ccBarColorId].buffKeys or RABui_Bars[RABui_ccBarColorId].buffKey;
 		if (type(buffKeys) == "string") then
 			buffKeys = { buffKeys };
 		end
 		
 		-- Save to main color
-		RABui_Bars[RABui_ccBar].color = { r, g, b };
+		RABui_Bars[RABui_ccBarColorId].color = { r, g, b };
 		
 		RABui_SyncBars();
 	end
 end
 
 function RABui_ChangeBarColor_Cancel(prev)
-	if (RABui_ccBar ~= 0) then
-		local buffKeys = RABui_Bars[RABui_ccBar].buffKeys or RABui_Bars[RABui_ccBar].buffKey;
+	if (RABui_ccBarColorId ~= 0) then
+		local buffKeys = RABui_Bars[RABui_ccBarColorId].buffKeys or RABui_Bars[RABui_ccBarColorId].buffKey;
 		if (type(buffKeys) == "string") then
 			buffKeys = { buffKeys };
 		end
 		
 		-- Restore main color
-		RABui_Bars[RABui_ccBar].color = prev;
+		RABui_Bars[RABui_ccBarColorId].color = prev;
 		RABui_SyncBars();
 	end
 end
@@ -2323,7 +2322,7 @@ end
 
 function RABui_Settings_BarLine_SwatchOnClick(id)
 	id = id + FauxScrollFrame_GetOffset(RAB_Settings_LayoutScrollBar);
-	RABui_ccBar = id;
+	RABui_ccBarColorId = id;
 	
 	-- Store previous colors for undo
 	local buffKeys = RABui_Bars[id].buffKeys or RABui_Bars[id].buffKey;
@@ -2635,4 +2634,3 @@ end
 RAB_Core_Register("PLAYER_LOGIN", "loadui", RABui_Load);
 RAB_Core_Register("PLAYER_REGEN_DISABLED", "combatStarted", RABui_HideInCombat);
 RAB_Core_Register("PLAYER_REGEN_ENABLED", "combatStopped", RABui_ShowAfterCombat);
-
