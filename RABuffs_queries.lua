@@ -807,7 +807,6 @@ function RAB_QueryWater(userData, needraw, needtxt)
 end
 
 function RAB_QueryDebuff(userData, needraw, needtxt)
-	-- [REFACTOR] Fixed: was referencing undefined 'bkey', now uses userData.buffKey
 	local btype = RAB_Buffs[userData.buffKey].ext
 	local bText = getglobal("sRAB_BuffOutput_Debuff_" ..
 			(btype == "" and "Typeless" or (btype == "SELF" and "Curable" or btype)));

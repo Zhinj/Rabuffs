@@ -734,27 +734,13 @@ end
 
 function RABui_ChangeBarColor_Done()
 	if (RABui_ccBarColorId ~= 0) then
-		local r, g, b = ColorPickerFrame:GetColorRGB();
-		local buffKeys = RABui_Bars[RABui_ccBarColorId].buffKeys or RABui_Bars[RABui_ccBarColorId].buffKey;
-		if (type(buffKeys) == "string") then
-			buffKeys = { buffKeys };
-		end
-		
-		-- Save to main color
-		RABui_Bars[RABui_ccBarColorId].color = { r, g, b };
-		
+		RABui_Bars[RABui_ccBarColorId].color = { ColorPickerFrame:GetColorRGB() };
 		RABui_SyncBars();
 	end
 end
 
 function RABui_ChangeBarColor_Cancel(prev)
 	if (RABui_ccBarColorId ~= 0) then
-		local buffKeys = RABui_Bars[RABui_ccBarColorId].buffKeys or RABui_Bars[RABui_ccBarColorId].buffKey;
-		if (type(buffKeys) == "string") then
-			buffKeys = { buffKeys };
-		end
-		
-		-- Restore main color
 		RABui_Bars[RABui_ccBarColorId].color = prev;
 		RABui_SyncBars();
 	end
@@ -762,53 +748,36 @@ end
 
 -- Helper functions for multiple query support
 function RABui_ConvertToBuffKeys(barData)
-	-- Normalize buffKey/buffKeys to always be a table
 	if (not barData.buffKeys) then
-		if (type(barData.buffKey) == "table") then
-			barData.buffKeys = barData.buffKey;
-		else
-			barData.buffKeys = { barData.buffKey };
-		end
-		-- Keep legacy buffKey for backward compatibility
+		barData.buffKeys = (type(barData.buffKey) == "table") and barData.buffKey or { barData.buffKey };
 		barData.buffKey = barData.buffKeys[1];
 	end
 	return barData.buffKeys;
 end
 
 function RABui_SetBarBuffKeys(barid, buffKeys)
-	-- Set multiple buff keys for a bar
-	if (type(buffKeys) == "string") then
-		buffKeys = { buffKeys };
-	end
+	if (type(buffKeys) == "string") then buffKeys = { buffKeys }; end
 	RABui_Bars[barid].buffKeys = buffKeys;
-	RABui_Bars[barid].buffKey = buffKeys[1]; -- Keep legacy support
+	RABui_Bars[barid].buffKey = buffKeys[1];
 end
 
 function RABui_AddBuffKeyToBar(barid, buffKey)
-	-- Add a single buff key to a bar's multi-query list
 	local buffKeys = RABui_ConvertToBuffKeys(RABui_Bars[barid]);
-	
-	-- Check if already exists
 	for _, bk in ipairs(buffKeys) do
-		if (bk == buffKey) then
-			return; -- Already in list
-		end
+		if (bk == buffKey) then return; end
 	end
-	
 	table.insert(buffKeys, buffKey);
 	RABui_Bars[barid].buffKeys = buffKeys;
 end
 
 function RABui_RemoveBuffKeyFromBar(barid, buffKey)
-	-- Remove a buff key from a bar's multi-query list
 	local buffKeys = RABui_ConvertToBuffKeys(RABui_Bars[barid]);
-	
 	for i, bk in ipairs(buffKeys) do
 		if (bk == buffKey) then
 			table.remove(buffKeys, i);
 			RABui_Bars[barid].buffKeys = buffKeys;
 			if (table.getn(buffKeys) > 0) then
-				RABui_Bars[barid].buffKey = buffKeys[1]; -- Update legacy support
+				RABui_Bars[barid].buffKey = buffKeys[1];
 			end
 			return;
 		end
@@ -816,7 +785,6 @@ function RABui_RemoveBuffKeyFromBar(barid, buffKey)
 end
 
 function RABui_GetBuffKeysFromBar(barid)
-	-- Get the list of buff keys for a bar
 	return RABui_ConvertToBuffKeys(RABui_Bars[barid]);
 end
 

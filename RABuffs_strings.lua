@@ -80,12 +80,10 @@ function sRAB_PseudoLocalize()
 					if identifier.bigcast then
 						sRAB_SpellNames[identifier.bigcast] = GetSpellName(
 								sArr[identifier.texture], BOOKTYPE_SPELL);
-						-- [REFACTOR] Fixed: second value after comma was silently discarded
-						sRAB_SpellIDs[identifier.bigcast] = sArr[identifier.texture];
-					elseif sRAB_SpellNames[buffKey] == nil then
-						sRAB_SpellNames[buffKey] = GetSpellName(
-								sArr[identifier.texture], BOOKTYPE_SPELL);
-						-- [REFACTOR] Fixed: second value after comma was silently discarded
+					sRAB_SpellIDs[identifier.bigcast] = sArr[identifier.texture];
+				elseif sRAB_SpellNames[buffKey] == nil then
+					sRAB_SpellNames[buffKey] = GetSpellName(
+							sArr[identifier.texture], BOOKTYPE_SPELL);
 						sRAB_SpellIDs[buffKey] = sArr[identifier.texture];
 					end
 				end

@@ -16,9 +16,7 @@ RAB_RA_VersionReplyMask = "([%w.]+) (%d+)[.,](%d+)";
 RAB_RA_BuffsMaskPart = "(%a%w+) (%d+)";
 
 
--- [REFACTOR] Disabled: Global version sync via hidden channel is unused.
--- The registration for gSyncInit was already commented out, so these functions never fire.
--- Commenting out the function bodies to save memory from dead closures.
+-- Disabled: Global version sync via hidden channel (registration already commented out)
 --[[
 function RAB_gSync_TimerEvent()
     local h, m, i = GetGameTime();
@@ -133,8 +131,7 @@ function RAB_SendBuffData_Timer()
     end
 end
 
--- [REFACTOR] Disabled: No addon listens for RAB/BT messages (RAB_Chat_BuffData registration
--- is commented out). This was broadcasting every 30s to no one, wasting CPU and bandwidth.
+-- Disabled: No listeners for RAB/BT messages (registration commented out)
 --RAB_Core_AddTimer(30, "buffbroadcast", RAB_SendBuffData_Timer);
 
 function RAB_Chat_VersionCheck()

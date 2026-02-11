@@ -34,7 +34,6 @@ function RAB_CTRA_AddOnEvent()
 end
 
 function RAB_CTRA_FindBuffKeyFromID(id)
-    -- [REFACTOR] O(1) lookup via pre-built reverse map instead of scanning all RAB_Buffs
     return RAB_CTRAIDToBuffMap[tonumber(id)];
 end
 

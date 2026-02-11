@@ -72,14 +72,11 @@ RAB_NumDebuffsCache = {};
 RAB_DebuffCache = {};
 RAB_DebuffLastUpdated = {};
 
--- [REFACTOR] Reverse lookup: texture -> buffKey. Built once at init, avoids O(n) scan.
+-- Reverse lookup maps for O(1) access
 RAB_TextureToBuffMap = {};
--- [REFACTOR] Reverse lookup: ctraid number -> buffKey. Built once at init.
 RAB_CTRAIDToBuffMap = {};
--- [REFACTOR] Class cache: unit -> class string. Cleared on roster change.
-RAB_ClassCache = {};
--- [REFACTOR] Cached GetTime() value, updated once per OnUpdate tick.
-RAB_CachedTime = 0;
+RAB_ClassCache = {}; -- unit -> class, cleared on roster change
+RAB_CachedTime = 0; -- GetTime() cached per frame
 
 local RestorSelfAutoCastTimeOut = 1;
 local RestorSelfAutoCast = false;
@@ -98,7 +95,6 @@ ptr:SetScript("OnEvent", function()
 	end
 end);
 ptr:SetScript("OnUpdate", function()
-	-- [REFACTOR] Cache GetTime() once per frame for all subsystems
 	RAB_CachedTime = GetTime();
 	if (RestorSelfAutoCast) then
 		RestorSelfAutoCastTimeOut = RestorSelfAutoCastTimeOut - arg1;
@@ -225,93 +221,55 @@ function RAB_StartUp()
 
 	-- set new selfLimit and useOnClick values
 	for index, bar in ipairs(RABui_Bars) do
-		-- default useOnClick to true
-		if bar.useOnClick == nil then
-			bar.useOnClick = true;
+		if bar.useOnClick == nil then bar.useOnClick = true; end
+		if not bar.selfLimit then bar.selfLimit = false; end
+		
+		-- Migration: convert old fillOnAny boolean to new fillStyle string
+		if bar.fillOnAny ~= nil then
+			bar.fillStyle = bar.fillOnAny and "Fill on any" or "Segments";
+			bar.fillOnAny = nil;
 		end
-		-- default selfLimit to false
-		if not bar.selfLimit then
-			bar.selfLimit = false; -- default to false
-		end
-	-- Migration: convert old fillOnAny boolean to new fillStyle string
-	if bar.fillOnAny ~= nil then
-		-- Legacy support: convert old boolean to new string
-		bar.fillStyle = bar.fillOnAny and "Fill on any" or "Segments";
-		bar.fillOnAny = nil; -- Remove old field
-	end
-	-- default fillStyle to "Segments"
-	if not bar.fillStyle then
-		bar.fillStyle = "Segments";
-	end
-
-	-- Normalize legacy buff key values if present. Use existing bar.buffKey or bar.cmd when available.
-	local buffKey = nil;
-	if bar.buffKey and type(bar.buffKey) == "string" then
-		buffKey = bar.buffKey;
-	elseif bar.cmd and type(bar.cmd) == "string" then
-		buffKey = bar.cmd;
-	end
-
-	if buffKey then
-		-- remove leading 'self' prefix
-		if string.sub(buffKey,1,4) == "self" then
-			buffKey = string.sub(buffKey, 5);
-			bar.selfLimit = true;
-		end
-
-		if buffKey == "spiritzanza" then
-			buffKey = "spiritofzanza";
-		end
-
-		if buffKey == "fortitude" then
-			buffKey = "elixirfortitude";
-		end
-
-		-- look if old "self" or "selfbuffonly" or "wepbuffonly" type is set on the buff buffKey
-		local buff = RAB_Buffs[buffKey];
-		if buff and buff.type then
-			if buff.type == "self" or buff.type == "selfbuffonly" or buff.type == "wepbuffonly" then
+		if not bar.fillStyle then bar.fillStyle = "Segments"; end
+		
+		-- Normalize legacy buff key values
+		local buffKey = (bar.buffKey and type(bar.buffKey) == "string") and bar.buffKey or (bar.cmd and type(bar.cmd) == "string") and bar.cmd or nil;
+		
+		if buffKey then
+			if string.sub(buffKey,1,4) == "self" then
+				buffKey = string.sub(buffKey, 5);
 				bar.selfLimit = true;
 			end
+			if buffKey == "spiritzanza" then buffKey = "spiritofzanza"; end
+			if buffKey == "fortitude" then buffKey = "elixirfortitude"; end
+			
+			local buff = RAB_Buffs[buffKey];
+			if buff and buff.type and (buff.type == "self" or buff.type == "selfbuffonly" or buff.type == "wepbuffonly") then
+				bar.selfLimit = true;
+			end
+			
+			bar.buffKey = buffKey;
+			bar.cmd = nil;
 		end
-
-		bar.buffKey = buffKey; -- key of the buff in RAB_Buffs
-		-- preserve existing groups/classes (may be nil); they will be defaulted below if needed
-		bar.cmd = nil;
-	end
-
-		if not bar.classes then
-			bar.classes = "";
-		end
-
-		if not bar.groups then
-			bar.groups = "";
-		end
-
+		
+		if not bar.classes then bar.classes = ""; end
+		if not bar.groups then bar.groups = ""; end
+		
 		if not bar.buffKey or not RAB_Buffs[bar.buffKey] then
 			RAB_Print("Bar " .. index .. " has an invalid name: " .. tostring(bar.buffKey) .. " please readd that buff", "warn");
 			RABui_Bars[index] = nil;
 		end
 		
-		-- Initialize buffKeys for multi-query support (convert from single buffKey if needed)
+		-- Initialize buffKeys for multi-query support
 		if bar.buffKey then
 			if not bar.buffKeys then
-				if type(bar.buffKey) == "table" then
-					bar.buffKeys = bar.buffKey;
-				else
-					bar.buffKeys = { bar.buffKey };
-				end
+				bar.buffKeys = (type(bar.buffKey) == "table") and bar.buffKey or { bar.buffKey };
 			end
-			-- Ensure buffKey is primary (for legacy support)
 			if type(bar.buffKey) == "table" then
 				bar.buffKey = bar.buffKeys[1];
 			end
 		end
 		
-		-- Initialize queryColors if not present
-		if not bar.queryColors then
-			bar.queryColors = {};
-		end
+		if not bar.queryColors then bar.queryColors = {}; end
 	end
 
 	RABui_DefBars = nil;
@@ -342,7 +300,7 @@ function RAB_BuildLookupTables()
 	end
 end
 
--- [REFACTOR] Clear stale caches when group roster changes
+-- Clear stale caches on roster change
 function RAB_OnRosterChange()
 	-- Clear class cache (units may have changed)
 	RAB_ClassCache = {};
@@ -365,7 +323,7 @@ function RAB_OnRosterChange()
 	end
 end
 
--- [REFACTOR] Periodic cleanup of expired timer entries (runs every 60s)
+-- Periodic cleanup of expired timers
 function RAB_PruneExpiredTimers()
 	local now = GetTime();
 	local key;
@@ -428,13 +386,19 @@ RAB_Core_Register("PLAYER_ENTERING_WORLD", "groupStatus", RAB_GroupStatusChange)
 RAB_Core_Register("CHAT_MSG_SYSTEM", "groupStatus", RAB_GroupStatusChange);
 RAB_Core_Register("VARIABLES_LOADED", "load", RAB_StartUp);
 RAB_Core_Register("PLAYER_LOGOUT", "unload", RAB_CleanUp);
--- [REFACTOR] Clear caches on roster changes to free stale entries
 RAB_Core_Register("RAID_ROSTER_UPDATE", "cacheClean", RAB_OnRosterChange);
 RAB_Core_Register("PARTY_MEMBERS_CHANGED", "cacheClean", RAB_OnRosterChange);
--- [REFACTOR] Periodic timer to prune expired entries from BuffTimers/CastLog/PendingRes
 RAB_Core_AddTimer(60, "pruneTimers", RAB_PruneExpiredTimers);
 
 -- Profile Management Functions
+local function RAB_DeepCopyTable(t)
+	local copy = {};
+	for k, v in pairs(t) do
+		copy[k] = (type(v) == "table") and RAB_DeepCopyTable(v) or v;
+	end
+	return copy;
+end
+
 function RAB_GetCharKey()
 	return GetCVar("realmName") .. "." .. UnitName("player");
 end
@@ -499,19 +463,8 @@ function RAB_SaveProfile(profileName)
 	local profileKey = RAB_GetProfileKey(profileName);
 	RABui_Settings.Layout[profileKey] = {};
 	
-	-- [REFACTOR] Fixed: Deep copy including nested tables (color, buffKeys, excludeNames, queryColors)
 	for i, bar in ipairs(RABui_Bars) do
-		RABui_Settings.Layout[profileKey][i] = {};
-		for key, val in pairs(bar) do
-			if (type(val) == "table") then
-				RABui_Settings.Layout[profileKey][i][key] = {};
-				for k2, v2 in pairs(val) do
-					RABui_Settings.Layout[profileKey][i][key][k2] = v2;
-				end
-			else
-				RABui_Settings.Layout[profileKey][i][key] = val;
-			end
-		end
+		RABui_Settings.Layout[profileKey][i] = RAB_DeepCopyTable(bar);
 	end
 	
 	RAB_Print("Profile '" .. profileName .. "' saved");
@@ -578,19 +531,8 @@ function RAB_LoadProfile(profileName)
 	-- Clear current bars
 	RABui_Bars = {};
 	
-	-- [REFACTOR] Fixed: Deep copy including nested tables (color, buffKeys, excludeNames, queryColors)
 	for i, bar in ipairs(RABui_Settings.Layout[profileKey]) do
-		RABui_Bars[i] = {};
-		for key, val in pairs(bar) do
-			if (type(val) == "table") then
-				RABui_Bars[i][key] = {};
-				for k2, v2 in pairs(val) do
-					RABui_Bars[i][key][k2] = v2;
-				end
-			else
-				RABui_Bars[i][key] = val;
-			end
-		end
+		RABui_Bars[i] = RAB_DeepCopyTable(bar);
 	end
 	
 	RAB_SetCurrentProfile(profileName);
