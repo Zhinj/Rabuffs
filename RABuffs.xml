@@ -316,7 +316,7 @@
             </Button>
             <Frame name="RAB_Menu" inherits="UIDropDownMenuTemplate" hidden="true">
                 <Scripts>
-                    <OnLoad>RABui_Menu_OnLoad();</OnLoad>
+                    <OnLoad>if (RABui_Menu_OnLoad ~= nil) then RABui_Menu_OnLoad(); end</OnLoad>
                 </Scripts>
             </Frame>
         </Frames>
@@ -1075,7 +1075,7 @@
                 </Anchors>
                 <Scripts>
                     <OnLoad>
-                        RABui_BarDetail_BuffType_OnLoad();
+                        if (RABui_BarDetail_BuffType_OnLoad ~= nil) then RABui_BarDetail_BuffType_OnLoad(); end
                     </OnLoad>
                 </Scripts>
             </Button>
@@ -1092,7 +1092,7 @@
                 </Anchors>
                 <Scripts>
                     <OnLoad>
-                        RABui_BarDetail_OutputTarget_OnLoad();
+                        if (RABui_BarDetail_OutputTarget_OnLoad ~= nil) then RABui_BarDetail_OutputTarget_OnLoad(); end
                     </OnLoad>
                 </Scripts>
             </Button>
@@ -1109,7 +1109,7 @@
                 </Anchors>
                 <Scripts>
                     <OnLoad>
-                        RABui_BarDetail_FillStyle_OnLoad();
+                        if (RABui_BarDetail_FillStyle_OnLoad ~= nil) then RABui_BarDetail_FillStyle_OnLoad(); end
                     </OnLoad>
                 </Scripts>
             </Button>
@@ -1135,7 +1135,7 @@
                 </Anchors>
                 <Scripts>
                     <OnLoad>
-                        RABui_BarDetail_BarGroups_OnLoad();
+                        if (RABui_BarDetail_BarGroups_OnLoad ~= nil) then RABui_BarDetail_BarGroups_OnLoad(); end
                     </OnLoad>
                 </Scripts>
             </Button>
@@ -1152,7 +1152,7 @@
                 </Anchors>
                 <Scripts>
                     <OnLoad>
-                        RABui_BarDetail_BarClasses_OnLoad();
+                        if (RABui_BarDetail_BarClasses_OnLoad ~= nil) then RABui_BarDetail_BarClasses_OnLoad(); end
                     </OnLoad>
                 </Scripts>
             </Button>

@@ -413,7 +413,9 @@ function RAB_GroupStatusChange()
 		ns = 1;
 	end
 	if (ns ~= RAB_CurrentGroupStatus) then
-		RABui_UpdateVisibility(ns, RAB_CurrentGroupStatus)
+		if (RABui_UpdateVisibility ~= nil) then
+			RABui_UpdateVisibility(ns, RAB_CurrentGroupStatus);
+		end
 		RAB_Core_Raise("RAB_GROUPSTATUS", ns, RAB_CurrentGroupStatus);
 		RAB_CurrentGroupStatus = ns;
 	end
