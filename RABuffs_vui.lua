@@ -153,7 +153,7 @@ function RABui_Load()
 end
 
 function RABui_SyncBars()
-	-- create bars if necessary
+	-- Create bars if necessary
 	for i = 1, table.getn(RABui_Bars) do
 		if (i > RABui_BarCount) then
 			RABui_CreateBar(i);
@@ -179,7 +179,7 @@ function RABui_SyncBars()
 	for i = 1, RABui_BarCount do
 		local showBar = barsToShow[i];
 		local bar = RABui_GetFrame("RAB_Bar" .. i)
-		if (showBar == nil) then
+		if not showBar then
 			bar:Hide();
 		else
 			shownBars = shownBars + 1;
@@ -190,32 +190,20 @@ function RABui_SyncBars()
 			
 			RABui_EnsureBarTextures(i, numQueries);
 			
-			if (numQueries == 1) then
-				local tex = RABui_GetFrame(RABui_GetTextureName(i, 1));
-				local tex2 = RABui_GetFrame(RABui_GetTextureName(i, 2));
-				if (tex) then
-					tex:SetTexture("Interface\\AddOns\\RABuffs\\bar.tga");
+			-- Setup textures for display
+			local numTexturesToSetup = (numQueries == 1) and 2 or numQueries;
+			for j = 1, numTexturesToSetup do
+				local tex = RABui_GetFrame(RABui_GetTextureName(i, j));
+				if tex then
 					tex:SetVertexColor(showBar.color[1], showBar.color[2], showBar.color[3]);
 					tex:Show();
 				end
-				if (tex2) then
-					tex2:SetTexture("Interface\\AddOns\\RABuffs\\bar.tga");
-					tex2:SetVertexColor(showBar.color[1], showBar.color[2], showBar.color[3]);
-					tex2:Show();
-				end
-				for j = 3, 8 do
-					local extraTex = RABui_GetFrame(RABui_GetTextureName(i, j));
-					if (extraTex) then
-						extraTex:Hide();
-					end
-				end
-			else
-				for j = 1, numQueries do
-					local tex = RABui_GetFrame(RABui_GetTextureName(i, j));
-					if (tex) then
-						tex:SetTexture("Interface\\AddOns\\RABuffs\\bar.tga");
-					end
-				end
+			end
+			
+			-- Hide unused textures
+			for j = numTexturesToSetup + 1, 8 do
+				local tex = RABui_GetFrame(RABui_GetTextureName(i, j));
+				if tex then tex:Hide(); end
 			end
 			
 			RABui_SetBarText(i, showBar.label .. (showBar.extralabel or ""));
@@ -343,55 +331,44 @@ end
 function RABui_SetMultiBarValues(barid, queryValues)
 	-- queryValues is a table: { {cur=x, fade=y, max=z, color={r,g,b}}, ... }
 	local bar = RABui_GetFrame("RAB_Bar" .. barid);
-	if (bar == nil) then return; end
+	if not bar then return; end
 	
 	local numQueries = table.getn(queryValues);
-	if (numQueries == 0) then return; end
+	if numQueries == 0 then return; end
 	
 	RABui_EnsureBarTextures(barid, numQueries);
 	
-	-- Hide all textures first (up to 8)
-	for i = 1, 8 do
+	-- Hide unused textures beyond numQueries
+	for i = numQueries + 1, 8 do
 		local tex = RABui_GetFrame(RABui_GetTextureName(barid, i));
 		if tex then tex:Hide(); end
 	end
 	
-	-- Calculate total max and completion status
-	local totalMax = 0;
-	local isComplete = true;
-	
+	-- Calculate total max and completion status in single pass
+	local totalMax, isComplete = 0, true;
 	for i, qv in ipairs(queryValues) do
-		totalMax = totalMax + (qv.max or 0);
-		if (qv.cur or 0) < (qv.max or 0) then
-			isComplete = false;
-		end
+		local qmax, qcur = qv.max or 0, qv.cur or 0;
+		totalMax = totalMax + qmax;
+		if qcur < qmax then isComplete = false; end
 	end
 	
 	-- Update completion status
-	if isComplete and totalMax > 0 then
-		RABui_CompleteBar(barid);
-	else
-		RABui_UncompleteBar(barid);
-	end
+	if isComplete and totalMax > 0 then RABui_CompleteBar(barid) else RABui_UncompleteBar(barid); end
 	
-	-- Guard against invalid bar width
-	local barWidth = bar:GetWidth();
-	if (barWidth == nil or barWidth == 0) then
-		barWidth = 120;
-	end
-	
+	-- Cache bar properties
+	local barWidth = bar:GetWidth() or 120;
+	if barWidth == 0 then barWidth = 120; end
 	local barColor = RABui_Bars[barid].color or { 1, 1, 1 };
-	bar.multiQueryFading = {};
-	bar.isMultiQuery = true;
+	
+	bar.multiQueryFading, bar.isMultiQuery = {}, true;
 	
 	local startOffset = 0;
 	for i, qv in ipairs(queryValues) do
 		local tex = RABui_GetFrame(RABui_GetTextureName(barid, i));
-		if tex ~= nil then
-			local segmentRatio = (qv.max and totalMax > 0) and (qv.max / totalMax) or 0;
-			local segmentWidth = barWidth * segmentRatio;
-			local fillRatio = (qv.max and qv.max > 0) and ((qv.cur or 0) / qv.max) or 0;
-			local fillWidth = math.max(segmentWidth * fillRatio, 0.01);
+		if tex then
+			local qmax, qcur = qv.max or 0, qv.cur or 0;
+			local segmentWidth = totalMax > 0 and (barWidth * qmax / totalMax) or 0;
+			local fillWidth = qmax > 0 and math.max(segmentWidth * qcur / qmax, 0.01) or 0.01;
 			
 			tex:SetVertexColor(barColor[1], barColor[2], barColor[3]);
 			tex:ClearAllPoints();
@@ -409,34 +386,23 @@ end
 
 function RABui_EnsureBarTextures(barid, numTextures)
 	local bar = RABui_GetFrame("RAB_Bar" .. barid);
-	if (bar == nil) then return; end
+	if not bar then return; end
 	
-	numTextures = numTextures or 2;
-	
-	for i = 1, math.min(numTextures, 8) do
+	for i = 1, math.min(numTextures or 2, 8) do
 		local texName = RABui_GetTextureName(barid, i);
 		local tex = RABui_GetFrame(texName);
 		
-		if (tex == nil) then
-			if (bar.CreateTexture) then
-				tex = bar:CreateTexture(texName, "BACKGROUND");
-				if (not tex) then
-					tex = bar:CreateTexture(nil, "BACKGROUND");
-				end
-			end
-			if (tex) then
-				if (tex.SetTexture) then tex:SetTexture("Interface\\AddOns\\RABuffs\\bar.tga") end
-				if (tex.SetSize) then tex:SetSize(120, 12) elseif (tex.SetWidth and tex.SetHeight) then tex:SetWidth(120); tex:SetHeight(12); end
-				if (tex.SetAlpha) then tex:SetAlpha(1.0) end
+		if not tex then
+			tex = bar:CreateTexture(texName, "BACKGROUND") or bar:CreateTexture(nil, "BACKGROUND");
+			if tex then
+				tex:SetTexture("Interface\\AddOns\\RABuffs\\bar.tga");
+				if tex.SetSize then tex:SetSize(120, 12) else tex:SetWidth(120); tex:SetHeight(12); end
 				RABui_FrameCache[texName] = tex;
 			else
 				RAB_Print("Failed to create texture " .. texName .. " for bar " .. tostring(barid), "warn");
 			end
 		else
-			if (tex and tex.GetTexture and not tex:GetTexture()) and tex.SetTexture then
-				tex:SetTexture("Interface\\AddOns\\RABuffs\\bar.tga");
-			end
-			if (tex and tex.SetAlpha) then tex:SetAlpha(1.0) end
+			if not tex:GetTexture() then tex:SetTexture("Interface\\AddOns\\RABuffs\\bar.tga"); end
 		end
 	end
 end
@@ -637,20 +603,17 @@ function RABui_UpdateBar(barid)
 end
 
 function RABui_UpdateMultiBar(barid, buffKeys)
-	local fillStyle = RABui_Bars[barid].fillStyle or "Total";
+	local barData = RABui_Bars[barid];
+	local fillStyle = barData.fillStyle or "Total";
 	
 	local function GetBuffCheckData(buffKey, getRaw)
-		local tempUserData = {};
-		for k, v in RABui_Bars[barid] do
-			tempUserData[k] = v;
-		end
-		tempUserData.buffKey = buffKey;
-		return RAB_CallRaidBuffCheck(tempUserData, getRaw, false);
+		local userData = RABui_CreateTempUserData(barid, buffKey);
+		return RAB_CallRaidBuffCheck(userData, getRaw, false);
 	end
 	
 	local function UpdateBarLabel(cur, total)
-		RABui_Bars[barid].extralabel = "";
-		local bartext = RABui_Bars[barid].label;
+		barData.extralabel = "";
+		local bartext = barData.label;
 		if (RABui_TooltipBar == barid) then
 			bartext = cur .. " / " .. total .. (total > 0 and " (" .. floor(cur * 100 / total) .. "%)" or "");
 		end
@@ -658,9 +621,7 @@ function RABui_UpdateMultiBar(barid, buffKeys)
 	end
 	
 	if (fillStyle == "Total") then
-		local totalBuffed = 0;
-		local totalFading = 0;
-		local totalMax = 0;
+		local totalBuffed, totalFading, totalMax = 0, 0, 0;
 		
 		for i, buffKey in ipairs(buffKeys) do
 			local buffed, fading, total = GetBuffCheckData(buffKey, false);
@@ -673,53 +634,38 @@ function RABui_UpdateMultiBar(barid, buffKeys)
 		UpdateBarLabel(totalBuffed, totalMax);
 	
 	elseif (fillStyle == "Fill on any" or fillStyle == "Exclusive") then
-		local playerHasAnyBuff = {};
-		local playerFadeTimes = {};
+		local playerBuffed = {};
 		local totalPlayers = 0;
-		local playersWithAnyBuff = 0;
-		local minFadeTime = nil;
+		local minFadeTime;
 		
 		for i, buffKey in ipairs(buffKeys) do
 			local buffed, fading, total, misc, _, _, _, _, _, raw = GetBuffCheckData(buffKey, true);
-			
-			if (i == 1) then
-				totalPlayers = total or 0;
-			end
+			if (i == 1) then totalPlayers = total or 0; end
 			
 			if (raw) then
 				for j, playerData in ipairs(raw) do
 					if (playerData.buffed) then
-						local playerName = playerData.name;
-						if (not playerHasAnyBuff[playerName]) then
-							playerHasAnyBuff[playerName] = true;
-							playersWithAnyBuff = playersWithAnyBuff + 1;
-						end
-						
-						if (playerData.fade and playerData.fade > 0) then
-							if (not playerFadeTimes[playerName] or playerData.fade < playerFadeTimes[playerName]) then
-								playerFadeTimes[playerName] = playerData.fade;
-							end
-							if (not minFadeTime or playerData.fade < minFadeTime) then
-								minFadeTime = playerData.fade;
-							end
+						playerBuffed[playerData.name] = true;
+						if (playerData.fade and playerData.fade > 0 and (not minFadeTime or playerData.fade < minFadeTime)) then
+							minFadeTime = playerData.fade;
 						end
 					end
 				end
 			end
 		end
 		
-		RABui_SetMultiBarValues(barid, { { cur = playersWithAnyBuff, fade = minFadeTime or 0, max = totalPlayers } });
-		UpdateBarLabel(playersWithAnyBuff, totalPlayers);
+		local coveredCount = 0;
+		for _ in pairs(playerBuffed) do coveredCount = coveredCount + 1; end
+		
+		RABui_SetMultiBarValues(barid, { { cur = coveredCount, fade = minFadeTime or 0, max = totalPlayers } });
+		UpdateBarLabel(coveredCount, totalPlayers);
 	else
 		local queryValues = {};
-		local totalBuffed = 0;
-		local totalFading = 0;
-		local totalPeople = 0;
+		local totalBuffed, totalFading, totalPeople = 0, 0, 0;
 		
 		for i, buffKey in ipairs(buffKeys) do
 			local buffed, fading, total = GetBuffCheckData(buffKey, false);
-			local buffData = RAB_Buffs[buffKey];
-			if (buffData) then
+			if (RAB_Buffs[buffKey]) then
 				table.insert(queryValues, { cur = buffed, fade = fading, max = total });
 				totalBuffed = totalBuffed + buffed;
 				totalFading = totalFading + fading;
@@ -747,6 +693,15 @@ function RABui_ChangeBarColor_Cancel(prev)
 end
 
 -- Helper functions for multiple query support
+function RABui_CreateTempUserData(barid, buffKey)
+	local userData = {};
+	for k, v in pairs(RABui_Bars[barid]) do
+		userData[k] = v;
+	end
+	userData.buffKey = buffKey;
+	return userData;
+end
+
 function RABui_ConvertToBuffKeys(barData)
 	if (not barData.buffKeys) then
 		barData.buffKeys = (type(barData.buffKey) == "table") and barData.buffKey or { barData.buffKey };
@@ -805,14 +760,9 @@ function RABui_UpdateTooltip(id)
 	for _, buffKey in ipairs(buffKeys) do
 		local buffData = RAB_Buffs[buffKey];
 		if (buffData ~= nil) then
-			local tempUserData = {};
-			for k, v in pairs(RABui_Bars[id]) do
-				tempUserData[k] = v;
-			end
-			tempUserData.buffKey = buffKey;
-			
+			local userData = RABui_CreateTempUserData(id, buffKey);
 			local buffed, _, _, _, mhead, hhead, _, _, invert, raw, rawsort, rawgroup = 
-				RAB_CallRaidBuffCheck(tempUserData, true, false);
+				RAB_CallRaidBuffCheck(userData, true, false);
 			
 			table.insert(allResults, {
 				buffKey = buffKey,
@@ -842,114 +792,65 @@ function RABui_UpdateTooltip(id)
 		return;
 	end
 	
-	if (table.getn(buffKeys) > 1) then
-		-- MULTI-QUERY DISPLAY
-		for queryIdx, result in ipairs(allResults) do
-			local showwhat = (result.invert == true);
-			if (IsShiftKeyDown()) then
-				showwhat = not showwhat;
-			end
-			
+	local function RenderTooltipLines(result, showMultiHeader)
+		local showwhat = result.invert;
+		if (IsShiftKeyDown()) then showwhat = not showwhat; end
+		
+		if (showMultiHeader) then
 			RAB_Tooltip:AddLine(result.buffData.name .. " " .. (showwhat and result.hhead or result.mhead));
-			
-			local og, cg, pline, linepeoplecount = 0, "", "", 0;
-			local displayCount = 0;
-			
-			if (result.raw ~= nil) then
-				for i = 1, table.getn(result.raw) do
-					if (result.raw[i] ~= nil and result.raw[i].class ~= nil and result.raw[i].buffed == showwhat) then
-						local line = result.raw[i];
-						displayCount = displayCount + 1;
-						line.append = line.append or "";
-						cg = result.rawgroup and string.format(result.rawgroup, line[result.rawsort]) or
-								string.format(sRAB_Core_GroupFormat, line.group);
-						linepeoplecount = linepeoplecount + 1;
-						if ((og ~= cg or result.rawgroup == false or result.rawgroup == nil) and og ~= 0 or linepeoplecount > 5) then
-							RAB_Tooltip:AddDoubleLine(pline, og);
-							pline = "";
-							linepeoplecount = 1;
-						end
-						og = cg;
-						pline = pline ..
-								(pline == "" and "" or ", ") ..
-								RABui_Tooltip_FormatNick(line.name, line.class, line.unit, line.append) ..
-								(line.fade ~= nil and " (" .. RAB_TimeFormatOffset(line.fade) .. ")" or "");
-					end
-				end
-				if (og ~= 0) then
+		else
+			RAB_Tooltip:AddLine(showwhat and result.hhead or result.mhead);
+		end
+		
+		if (not result.raw) then return 0; end
+		
+		local og, cg, pline, linepeoplecount, displayCount = 0, "", "", 0, 0;
+		for i = 1, table.getn(result.raw) do
+			local line = result.raw[i];
+			if (line and line.class and line.buffed == showwhat) then
+				displayCount = displayCount + 1;
+				line.append = line.append or "";
+				cg = result.rawgroup and string.format(result.rawgroup, line[result.rawsort]) or string.format(sRAB_Core_GroupFormat, line.group);
+				linepeoplecount = linepeoplecount + 1;
+				if ((og ~= cg or not result.rawgroup) and og ~= 0 or linepeoplecount > 5) then
 					RAB_Tooltip:AddDoubleLine(pline, og);
+					pline, linepeoplecount = "", 1;
 				end
-				if (displayCount == 0) then
-					RAB_Tooltip:AddLine(sRAB_Tooltip_NoOne);
-				end
-			end
-			
-			if (queryIdx < table.getn(allResults)) then
-				RAB_Tooltip:AddLine(" ");
+				og = cg;
+				pline = pline .. (pline ~= "" and ", " or "") .. RABui_Tooltip_FormatNick(line.name, line.class, line.unit, line.append) .. 
+				        (line.fade and " (" .. RAB_TimeFormatOffset(line.fade) .. ")" or "");
 			end
 		end
+		if (og ~= 0) then RAB_Tooltip:AddDoubleLine(pline, og); end
+		if (displayCount == 0) then RAB_Tooltip:AddLine(sRAB_Tooltip_NoOne); end
+		
+		return displayCount;
+	end
+	
+	local numResults = table.getn(allResults);
+	if (numResults > 1) then
+		for queryIdx, result in ipairs(allResults) do
+			RenderTooltipLines(result, true);
+			if (queryIdx < numResults) then RAB_Tooltip:AddLine(" "); end
+		end
 	else
-		-- SINGLE-QUERY DISPLAY
 		local result = allResults[1];
-		local raw = result.raw;
-		local invert = result.invert;
+		local displayCount = RenderTooltipLines(result, false);
 		
-		local og, cg, pline, linepeoplecount = 0, "", "", 0;
-		local l = 0;
-		
-		if (raw ~= nil) then
-			local showwhat = (invert == true);
-			if (IsShiftKeyDown()) then
-				showwhat = not showwhat;
-			end
-			RAB_Tooltip:AddLine(showwhat and result.hhead or result.mhead);
-			for i = 1, table.getn(raw) do
-				if (raw[i] ~= nil and raw[i].class ~= nil and raw[i].buffed == showwhat) then
-					local line = raw[i];
-					l = l + 1;
-					line.append = line.append or "";
-					cg = result.rawgroup and string.format(result.rawgroup, line[result.rawsort]) or
-							string.format(sRAB_Core_GroupFormat, line.group);
-					linepeoplecount = linepeoplecount + 1;
-					if ((og ~= cg or result.rawgroup == false or result.rawgroup == nil) and og ~= 0 or linepeoplecount > 5) then
-						RAB_Tooltip:AddDoubleLine(pline, og);
-						pline = "";
-						linepeoplecount = 1;
-					end
-					og = cg;
-					pline = pline ..
-							(pline == "" and "" or ", ") ..
-							RABui_Tooltip_FormatNick(line.name, line.class, line.unit, line.append) ..
-							(line.fade ~= nil and " (" .. RAB_TimeFormatOffset(line.fade) .. ")" or "");
-				end
-			end
-			if (og ~= 0) then
-				RAB_Tooltip:AddDoubleLine(pline, og);
-			end
-			if (l == 0) then
-				RAB_Tooltip:AddLine(sRAB_Tooltip_NoOne);
-				if (showwhat == false and result.buffed > 0 and result.buffData.recast ~= nil) then
-					table.sort(raw,
-							function(a, b)
-								return tonumber(tostring(a.fade) == "nil" and 9999 or tostring(a.fade)) <
-										tonumber(tostring(b.fade) == "nil" and 9999 or tostring(b.fade));
-							end);
-					if (raw[1].fade ~= nil and raw[1].fade < result.buffData.recast * 60) then
-						RAB_Tooltip:SetOwner(RABFrame, "ANCHOR_LEFT");
-						RAB_Tooltip:AddLine(string.format(sRAB_Tooltip_FadeSoon, result.buffData.name));
-						for i = 1, 10 do
-							if (raw[i] ~= nil and raw[i].fade ~= nil and raw[i].fade < result.buffData.recast * 60) then
-								RAB_Tooltip:AddDoubleLine(
-										RABui_Tooltip_FormatNick(raw[i].name, raw[i].class, raw[i].unit, raw[i].append),
-										RAB_TimeFormatOffset(raw[i].fade));
-							end
-						end
+		if (displayCount == 0 and not result.invert and result.buffed > 0 and result.buffData.recast) then
+			table.sort(result.raw, function(a, b)
+				return (a.fade or 9999) < (b.fade or 9999);
+			end);
+			if (result.raw[1].fade and result.raw[1].fade < result.buffData.recast * 60) then
+				RAB_Tooltip:SetOwner(RABFrame, "ANCHOR_LEFT");
+				RAB_Tooltip:AddLine(string.format(sRAB_Tooltip_FadeSoon, result.buffData.name));
+				for i = 1, 10 do
+					local line = result.raw[i];
+					if (line and line.fade and line.fade < result.buffData.recast * 60) then
+						RAB_Tooltip:AddDoubleLine(RABui_Tooltip_FormatNick(line.name, line.class, line.unit, line.append), RAB_TimeFormatOffset(line.fade));
 					end
 				end
 			end
-		else
-			RABui_TooltipBar = nil;
-			return;
 		end
 	end
 	
@@ -1041,39 +942,25 @@ function RABui_BarOnClick()
 		local fillStyle = RABui_Bars[id].fillStyle or "Segments";
 		
 		if (fillStyle == "Exclusive") then
-			local playerHasAnyBuff = {};
+			local playerBuffed = {};
 			local totalPlayers = 0;
 			
 			for i, buffKey in ipairs(buffKeys) do
-				local buffData = RAB_Buffs[buffKey];
-				if (buffData ~= nil) then
-					local tempUserData = {};
-					for k, v in pairs(RABui_Bars[id]) do
-						tempUserData[k] = v;
-					end
-					tempUserData.buffKey = buffKey;
+				if (RAB_Buffs[buffKey]) then
+					local userData = RABui_CreateTempUserData(id, buffKey);
+					local buffed, fading, total, _, _, _, _, _, _, raw = RAB_CallRaidBuffCheck(userData, true, false);
 					
-					local buffed, fading, total, _, _, _, _, _, _, raw = RAB_CallRaidBuffCheck(tempUserData, true, false);
-					
-					if (i == 1) then
-						totalPlayers = total or 0;
-					end
-					
+					if (i == 1) then totalPlayers = total or 0; end
 					if (raw) then
 						for j, playerData in ipairs(raw) do
-							if (playerData.buffed) then
-								playerHasAnyBuff[playerData.name] = true;
-							end
+							if (playerData.buffed) then playerBuffed[playerData.name] = true; end
 						end
 					end
 				end
 			end
 			
-			-- Check if everyone is already covered
 			local coveredCount = 0;
-			for playerName in pairs(playerHasAnyBuff) do
-				coveredCount = coveredCount + 1;
-			end
+			for _ in pairs(playerBuffed) do coveredCount = coveredCount + 1; end
 			
 			if (coveredCount >= totalPlayers and totalPlayers > 0) then
 				if (RABui_Settings.showsampleoutputonclick) then
@@ -1086,25 +973,13 @@ function RABui_BarOnClick()
 		local showOutput = true;
 		for _, buffKey in ipairs(buffKeys) do
 			local buffData = RAB_Buffs[buffKey];
-			if (buffData ~= nil) then
-				local tempUserData = {};
-				for k, v in pairs(RABui_Bars[id]) do
-					tempUserData[k] = v;
-				end
-				tempUserData.buffKey = buffKey;
-				
-				local buffed, fading, total = RAB_CallRaidBuffCheck(tempUserData, false, false);
+			if (buffData) then
+				local userData = RABui_CreateTempUserData(id, buffKey);
+				local buffed, fading, total = RAB_CallRaidBuffCheck(userData, false, false);
 				
 				if (buffed < total) then
-					if (buffData.buffFunc ~= nil) then
-						showOutput = buffData.buffFunc("cast", tempUserData);
-					else
-						showOutput = RAB_DefaultCastingHandler("cast", tempUserData);
-					end
-					
-					if (not showOutput) then
-						break;
-					end
+					showOutput = (buffData.buffFunc and buffData.buffFunc("cast", userData)) or RAB_DefaultCastingHandler("cast", userData);
+					if (not showOutput) then break; end
 				end
 			end
 		end
@@ -2324,35 +2199,16 @@ function RABui_BarRedraw()
 	local now = RAB_CachedTime;
 	
 	-- Check if this is a multi-query bar with flashing
-	if (this.isMultiQuery and this.multiQueryFading) then
-		local hasFlashing = false;
+	if (this.isMultiQuery and this.multiQueryFading and this.fadetime < now) then
+		local alpha = nil;
 		for queryIdx, fadeVal in ipairs(this.multiQueryFading) do
 			if (fadeVal and fadeVal > 0) then
-				hasFlashing = true;
-				break;
-			end
-		end
-		
-		if (hasFlashing and this.fadetime < now) then
-			this.fadetime = now + 0.04;
-			local alpha = cos(now * 180) * 0.2 + 0.5;
-			
-			-- Apply flashing to all fading textures
-			for queryIdx, fadeVal in ipairs(this.multiQueryFading) do
-				if (fadeVal and fadeVal > 0) then
-					local texName;
-					if (queryIdx == 1) then
-						texName = this:GetName() .. "Tex";
-					elseif (queryIdx == 2) then
-						texName = this:GetName() .. "Tex2";
-					else
-						texName = this:GetName() .. "Tex" .. queryIdx;
-					end
-					local tex = RABui_GetFrame(texName);
-					if (tex) then
-						tex:SetAlpha(alpha);
-					end
+				if not alpha then
+					this.fadetime = now + 0.04;
+					alpha = cos(now * 180) * 0.2 + 0.5;
 				end
+				local tex = RABui_GetFrame(RABui_GetTextureName(barid, queryIdx));
+				if tex then tex:SetAlpha(alpha); end
 			end
 		end
 	-- Single-query bar flashing (legacy)
