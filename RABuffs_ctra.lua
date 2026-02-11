@@ -95,7 +95,6 @@ function RAB_CTRA_IsAFK(name)
 end
 
 RAB_Core_Register("ADDON_LOADED", "ctraLoad", RAB_CTRA_CheckLoad);
--- [REFACTOR] Disabled: RAB_CTRA_ChannelEvent is never defined anywhere — this was registering
--- a nil function as a handler, which would cause errors if the event ever fired.
+-- Disabled: RAB_CTRA_ChannelEvent is undefined; registering nil would cause errors
 --RAB_Core_Register("CHAT_MSG_CHANNEL", "ctraFilter", RAB_CTRA_ChannelEvent);
 RAB_Core_Register("CHAT_MSG_ADDON", "ctraBuffTimers", RAB_CTRA_AddOnEvent);

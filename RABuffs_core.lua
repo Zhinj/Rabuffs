@@ -276,13 +276,11 @@ function RAB_StartUp()
 
 	RAB_Versions = type(RABui_Settings.keepversions) == "table" and RABui_Settings.keepversions or {};
 
-	-- [REFACTOR] Build reverse lookup tables at startup
 	RAB_BuildLookupTables();
 
 	return "remove"; -- unsubscribe event
 end
 
--- [REFACTOR] Build one-time reverse lookup maps for O(1) access
 function RAB_BuildLookupTables()
 	for buffKey, buffData in RAB_Buffs do
 		-- Build texture -> buffKey map

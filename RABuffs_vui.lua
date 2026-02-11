@@ -560,13 +560,13 @@ function RABui_OnUpdate(elapsed)
 		end
 		RABui_NextUpdate = RAB_CachedTime + RABui_Settings.updateInterval;
 	end
-	-- local shiftstate = (IsShiftKeyDown() and 1 or 0) + (IsAltKeyDown() and 2 or 0);
-	-- if (shiftstate ~= RABui_LastShiftState) then
-	-- 	RABui_LastShiftState = shiftstate;
-	-- 	if (RABui_TooltipBar ~= nil and RABui_TooltipBar ~= 0) then
-	-- 		RABui_UpdateTooltip(RABui_TooltipBar);
-	-- 	end
-	-- end
+	local shiftstate = (IsShiftKeyDown() and 1 or 0) + (IsAltKeyDown() and 2 or 0);
+	if (shiftstate ~= RABui_LastShiftState) then
+		RABui_LastShiftState = shiftstate;
+		if (RABui_TooltipBar ~= nil and RABui_TooltipBar ~= 0) then
+			RABui_UpdateTooltip(RABui_TooltipBar);
+		end
+	end
 end
 
 function RABui_UpdateBar(barid)
@@ -827,8 +827,77 @@ function RABui_UpdateTooltip(id)
 		return displayCount;
 	end
 	
+	local function RenderExclusiveTooltip(allResults, barName)
+		-- For exclusive fill style with multiple queries, show consolidated list
+		local consolidatedPlayers = {};
+		
+		-- Determine if we should show inverted view based on Shift key
+		local showwhat = allResults[1].invert;
+		if (IsShiftKeyDown()) then showwhat = not showwhat; end
+
+		-- Create header with bar name
+		local headerText = showwhat and string.format(sRAB_BuffOutput_IsOn, barName) .. ":" or string.format(sRAB_BuffOutput_MissingOn, barName) .. ":";
+		RAB_Tooltip:AddLine(headerText);
+		
+		-- Collect all players that match the criteria
+		for _, result in ipairs(allResults) do
+			if (result.raw) then
+				for i = 1, table.getn(result.raw) do
+					local line = result.raw[i];
+					if (line and line.class and line.buffed == showwhat) then
+						-- Only add if not already added (to avoid duplicates)
+						if (not consolidatedPlayers[line.unit]) then
+							consolidatedPlayers[line.unit] = {
+								name = line.name,
+								class = line.class,
+								unit = line.unit,
+								group = line.group,
+								append = line.append or "",
+								fade = line.fade,
+								rawsort = result.rawsort,
+								rawgroup = result.rawgroup
+							};
+						end
+					end
+				end
+			end
+		end
+		
+		-- Convert to array and sort by group
+		local sortedPlayers = {};
+		for _, playerData in pairs(consolidatedPlayers) do
+			table.insert(sortedPlayers, playerData);
+		end
+		table.sort(sortedPlayers, function(a, b) return a.group < b.group; end);
+		
+		-- Display consolidated list
+		local og, cg, pline, linepeoplecount, displayCount = 0, "", "", 0, 0;
+		for i = 1, table.getn(sortedPlayers) do
+			local line = sortedPlayers[i];
+			displayCount = displayCount + 1;
+			cg = line.rawgroup and string.format(line.rawgroup, line[line.rawsort]) or string.format(sRAB_Core_GroupFormat, line.group);
+			linepeoplecount = linepeoplecount + 1;
+			if ((og ~= cg or not line.rawgroup) and og ~= 0 or linepeoplecount > 5) then
+				RAB_Tooltip:AddDoubleLine(pline, og);
+				pline, linepeoplecount = "", 1;
+			end
+			og = cg;
+			pline = pline .. (pline ~= "" and ", " or "") .. RABui_Tooltip_FormatNick(line.name, line.class, line.unit, line.append) .. 
+			        (line.fade and " (" .. RAB_TimeFormatOffset(line.fade) .. ")" or "");
+		end
+		if (og ~= 0) then RAB_Tooltip:AddDoubleLine(pline, og); end
+		if (displayCount == 0) then RAB_Tooltip:AddLine(sRAB_Tooltip_NoOne); end
+		
+		return displayCount;
+	end
+	
 	local numResults = table.getn(allResults);
-	if (numResults > 1) then
+	local fillStyle = RABui_Bars[id].fillStyle or "Segments";
+	
+	if (numResults > 1 and fillStyle == "Exclusive") then
+		-- Use exclusive tooltip rendering for multiple queries with exclusive fill style
+		local displayCount = RenderExclusiveTooltip(allResults, RABui_Bars[id].label);
+	elseif (numResults > 1) then
 		for queryIdx, result in ipairs(allResults) do
 			RenderTooltipLines(result, true);
 			if (queryIdx < numResults) then RAB_Tooltip:AddLine(" "); end
