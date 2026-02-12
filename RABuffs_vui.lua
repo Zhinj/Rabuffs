@@ -23,18 +23,9 @@ RABui_UpdateId = 0;
 RABui_NextUpdate = 0;
 RABui_LastShiftState = 0; -- Shift*1+Alt*2
 
-RAB_BarDetail_SelectedGroups = { true, true, true, true, true, true, true, true };
-RAB_BarDetail_SelectedClasses = {
-	m = true,
-	l = true,
-	p = true,
-	r = true,
-	d = true,
-	h = true,
-	s = true,
-	w = true,
-	a = true
-};
+-- Per-buffKey group/class restrictions for multi-query support
+RAB_BarDetail_SelectedGroups = {}; -- { [buffKey] = { true, true, ... } }
+RAB_BarDetail_SelectedClasses = {}; -- { [buffKey] = { m = true, l = true, ... } }
 RAB_BarDetail_SelectedType = ""; -- AddBar Bar Type
 RAB_BarDetail_SelectedBuffKeys = {}; -- Multiple buff keys for multi-query support
 RAB_BarDetail_SelectedBuffKeysOrder = {}; -- Tracks the order of selection
@@ -699,6 +690,15 @@ function RABui_CreateTempUserData(barid, buffKey)
 		userData[k] = v;
 	end
 	userData.buffKey = buffKey;
+	
+	-- Apply per-buffKey group/class restrictions if available
+	if (RABui_Bars[barid].groupsByBuff and RABui_Bars[barid].groupsByBuff[buffKey]) then
+		userData.groups = RABui_Bars[barid].groupsByBuff[buffKey];
+	end
+	if (RABui_Bars[barid].classesByBuff and RABui_Bars[barid].classesByBuff[buffKey]) then
+		userData.classes = RABui_Bars[barid].classesByBuff[buffKey];
+	end
+	
 	return userData;
 end
 
@@ -1254,20 +1254,44 @@ function RABui_BarDetail_SetBarData(id)
 		end
 	end
 
-	if (groups == "" or groups == nil) then
-		RAB_BarDetail_SelectedGroups = { true, true, true, true, true, true, true, true };
-	else
-		RAB_BarDetail_SelectedGroups = { false, false, false, false, false, false, false, false };
-		for grp in string.gfind(groups, "(%d)") do
-			RAB_BarDetail_SelectedGroups[tonumber(grp)] = true;
+	-- Initialize per-buffKey group/class restrictions
+	RAB_BarDetail_SelectedGroups = {};
+	RAB_BarDetail_SelectedClasses = {};
+	
+	if (id == 0) then
+		-- New bar: initialize with defaults for first selected buff
+		for _, buffKey in ipairs(RAB_BarDetail_SelectedBuffKeysOrder) do
+			RAB_BarDetail_SelectedGroups[buffKey] = { true, true, true, true, true, true, true, true };
+			RAB_BarDetail_SelectedClasses[buffKey] = { m = true, l = true, p = true, r = true, d = true, h = true, s = true, w = true, a = true };
 		end
-	end
-	if (classes == "" or classes == nil) then
-		RAB_BarDetail_SelectedClasses = { m = true, l = true, p = true, r = true, d = true, h = true, s = true, w = true, a = true };
 	else
-		RAB_BarDetail_SelectedClasses = { m = false, l = false, p = false, r = false, d = false, h = false, s = false, w = false, a = false };
-		for grp in string.gfind(classes, "(%a)") do
-			RAB_BarDetail_SelectedClasses[grp] = true;
+		-- Editing existing bar: load per-buffKey restrictions
+		local buffKeys = RABui_GetBuffKeysFromBar(id);
+		local barGroups = RABui_Bars[id].groupsByBuff;
+		local barClasses = RABui_Bars[id].classesByBuff;
+		
+		for _, buffKey in ipairs(buffKeys) do
+			-- Load groups for this buffKey
+			local bgr = (barGroups and barGroups[buffKey]) or groups or "";
+			if (bgr == "" or bgr == nil) then
+				RAB_BarDetail_SelectedGroups[buffKey] = { true, true, true, true, true, true, true, true };
+			else
+				RAB_BarDetail_SelectedGroups[buffKey] = { false, false, false, false, false, false, false, false };
+				for grp in string.gfind(bgr, "(%d)") do
+					RAB_BarDetail_SelectedGroups[buffKey][tonumber(grp)] = true;
+				end
+			end
+			
+			-- Load classes for this buffKey
+			local bcl = (barClasses and barClasses[buffKey]) or classes or "";
+			if (bcl == "" or bcl == nil) then
+				RAB_BarDetail_SelectedClasses[buffKey] = { m = true, l = true, p = true, r = true, d = true, h = true, s = true, w = true, a = true };
+			else
+				RAB_BarDetail_SelectedClasses[buffKey] = { m = false, l = false, p = false, r = false, d = false, h = false, s = false, w = false, a = false };
+				for grp in string.gfind(bcl, "(%a)") do
+					RAB_BarDetail_SelectedClasses[buffKey][grp] = true;
+				end
+			end
 		end
 	end
 
@@ -1315,35 +1339,35 @@ function RABui_BarDetail_Priority_SetTooltip()
 	end
 end
 
-function RABui_BarDetail_BarGroups_ToggleGroup()
-	local grp = tonumber(this.value);
-	RAB_BarDetail_SelectedGroups[grp] = not RAB_BarDetail_SelectedGroups[grp];
-	RABui_BarDetail_BarGroups_UpdateText();
-end
-
-function RABui_BarDetail_BarGroups_ToggleAll()
-	local i;
-	for i = 2, 8 do
-		RAB_BarDetail_SelectedGroups[i] = not RAB_BarDetail_SelectedGroups[1];
-	end
-	RAB_BarDetail_SelectedGroups[1] = not RAB_BarDetail_SelectedGroups[1];
-	RABui_BarDetail_BarGroups_UpdateText();
-end
-
 function RABui_BarDetail_BarGroups_UpdateText()
-	local i, sb, gc = 0, "", 0;
-	for i = 1, 8 do
-		if (RAB_BarDetail_SelectedGroups[i]) then
-			sb = (sb == "" and "" or (sb .. ", ")) .. i;
-			gc = gc + 1;
-		end
+	local numBuffKeys = table.getn(RAB_BarDetail_SelectedBuffKeysOrder);
+	if (numBuffKeys == 0) then
+		UIDropDownMenu_SetText(sRAB_Settings_BarDetail_GroupsAll, RAB_BarDetail_Groups);
+		return;
 	end
-	if (gc == 8) then
-		UIDropDownMenu_SetText(sRAB_Settings_BarDetail_GroupsAll, RAB_BarDetail_Groups);
-	elseif (gc >= 1) then
-		UIDropDownMenu_SetText(string.format(sRAB_Settings_BarDetail_GroupsSome, sb), RAB_BarDetail_Groups);
+	
+	if (numBuffKeys == 1) then
+		-- Single query: show simple text
+		local buffKey = RAB_BarDetail_SelectedBuffKeysOrder[1];
+		if (not RAB_BarDetail_SelectedGroups[buffKey]) then
+			UIDropDownMenu_SetText(sRAB_Settings_BarDetail_GroupsAll, RAB_BarDetail_Groups);
+			return;
+		end
+		local sb, gc = "", 0;
+		for i = 1, 8 do
+			if (RAB_BarDetail_SelectedGroups[buffKey][i]) then
+				sb = (sb == "" and "" or (sb .. ", ")) .. i;
+				gc = gc + 1;
+			end
+		end
+		if (gc == 8) then
+			UIDropDownMenu_SetText(sRAB_Settings_BarDetail_GroupsAll, RAB_BarDetail_Groups);
+		else
+			UIDropDownMenu_SetText(string.format(sRAB_Settings_BarDetail_GroupsSome, sb), RAB_BarDetail_Groups);
+		end
 	else
-		UIDropDownMenu_SetText(sRAB_Settings_BarDetail_GroupsAll, RAB_BarDetail_Groups);
+		-- Multi query: show summary
+		UIDropDownMenu_SetText("Groups (per buff)", RAB_BarDetail_Groups);
 	end
 end
 
@@ -1353,78 +1377,158 @@ function RABui_BarDetail_BarGroups_OnLoad()
 end
 
 function RABui_BarDetail_BarGroups_Initialize()
-	local i, alltrue = 1, true;
-	for i = 1, 8 do
-		alltrue = alltrue and RAB_BarDetail_SelectedGroups[i];
+	local numBuffKeys = table.getn(RAB_BarDetail_SelectedBuffKeysOrder);
+	
+	if (numBuffKeys == 0) then
+		return;
 	end
-	for i = 1, 8 do
+	
+	if (numBuffKeys == 1) then
+		-- Single query: show simple layout
+		local buffKey = RAB_BarDetail_SelectedBuffKeysOrder[1];
+		if (not RAB_BarDetail_SelectedGroups[buffKey]) then
+			return;
+		end
+		for i = 1, 8 do
+			local groupNum = i;
+			local capturedBuffKey = buffKey;
+			UIDropDownMenu_AddButton({
+				text = "Group " .. i,
+				value = i,
+				checked = (RAB_BarDetail_SelectedGroups[buffKey][i] == true),
+				func = function()
+					if (RAB_BarDetail_SelectedGroups[capturedBuffKey]) then
+						RAB_BarDetail_SelectedGroups[capturedBuffKey][groupNum] = not RAB_BarDetail_SelectedGroups[capturedBuffKey][groupNum];
+					end
+					RABui_BarDetail_BarGroups_UpdateText();
+				end,
+				keepShownOnClick = 1,
+				justifyH = "CENTER"
+			});
+		end
+		local capturedBuffKey = buffKey;
 		UIDropDownMenu_AddButton({
-			text = "Group " .. i,
-			value = i,
-			checked = (RAB_BarDetail_SelectedGroups[i] == true),
-			func = RABui_BarDetail_BarGroups_ToggleGroup,
-			keepShownOnClick = 1,
+			text = sRAB_AddBar_ToggleAll,
+			notCheckable = 1,
+			func = function()
+				if (RAB_BarDetail_SelectedGroups[capturedBuffKey]) then
+					local newState = not RAB_BarDetail_SelectedGroups[capturedBuffKey][1];
+					for i = 1, 8 do
+						RAB_BarDetail_SelectedGroups[capturedBuffKey][i] = newState;
+					end
+				end
+				RABui_BarDetail_BarGroups_UpdateText();
+			end,
 			justifyH = "CENTER"
 		});
-	end
-	DropDownList1.maxWidth = 170;
-	UIDropDownMenu_AddButton({
-		text = sRAB_AddBar_ToggleAll,
-		notCheckable = 1,
-		func = RABui_BarDetail_BarGroups_ToggleAll,
-		justifyH = "CENTER"
-	});
-end
-
-function RABui_BarDetail_BarClasses_ToggleClass()
-	RAB_BarDetail_SelectedClasses[this.value] = not RAB_BarDetail_SelectedClasses[this.value];
-	RABui_BarDetail_BarClasses_UpdateText();
-end
-
-function RABui_BarDetail_BarClasses_ToggleAll()
-	local key, st, val = "", not RAB_BarDetail_SelectedClasses["m"];
-
-	for key, val in RAB_BarDetail_SelectedClasses do
-		RAB_BarDetail_SelectedClasses[key] = st;
-	end
-	RABui_BarDetail_BarClasses_UpdateText();
-end
-
-function RABui_BarDetail_BarClasses_UpdateText()
-	local sb, gc, fgc, key, val = "", 0, 0;
-	local ignoreString = "-";
-	local buffSelected = RAB_BarDetail_SelectedType ~= "" and RAB_BarDetail_SelectedType ~= nil and RAB_Buffs[RAB_BarDetail_SelectedType] ~= nil;
-	if (buffSelected and RAB_Buffs[RAB_BarDetail_SelectedType].ignoreClass ~= nil) then
-		ignoreString = RAB_Buffs[RAB_BarDetail_SelectedType].ignoreClass;
-	end
-
-	if buffSelected and RAB_Buffs[RAB_BarDetail_SelectedType].class then
-		local fullClass = RAB_Buffs[RAB_BarDetail_SelectedType].class
-		local shortClass = RAB_ClassShort[fullClass];
-		fgc = 1;
-		if (RAB_BarDetail_SelectedClasses[shortClass]) then
-			sb = (sb == "" and "" or (sb .. ", ")) .. fullClass;
-			gc = gc + 1;
-		end
 	else
-		for key, val in RAB_ClassShort do
-			--if ((val ~= "s" or UnitFactionGroup("player") == "Horde") and (val ~= "a" or UnitFactionGroup("player") == "Alliance")) then
-			if (string.find(ignoreString, val) == nil) then
-				fgc = fgc + 1;
-				if (RAB_BarDetail_SelectedClasses[val]) then
-					sb = (sb == "" and "" or (sb .. ", ")) .. key;
-					gc = gc + 1;
+		-- Multi query: show hierarchical menu
+		if (UIDROPDOWNMENU_MENU_LEVEL == 1) then
+			-- Level 1: Show buff names
+			for _, buffKey in ipairs(RAB_BarDetail_SelectedBuffKeysOrder) do
+				local buffData = RAB_Buffs[buffKey];
+				if (buffData and RAB_BarDetail_SelectedGroups[buffKey]) then
+					UIDropDownMenu_AddButton({
+						text = buffData.name,
+						value = buffKey,
+						hasArrow = 1,
+						notCheckable = 1
+					});
 				end
+			end
+		else
+			-- Level 2: Show groups for selected buff
+			local buffKey = UIDROPDOWNMENU_MENU_VALUE;
+			if (buffKey and RAB_BarDetail_SelectedGroups[buffKey]) then
+				for i = 1, 8 do
+					local groupNum = i;
+					local capturedBuffKey = buffKey;
+					UIDropDownMenu_AddButton({
+						text = "Group " .. i,
+						value = i,
+						checked = (RAB_BarDetail_SelectedGroups[buffKey][i] == true),
+						func = function()
+							if (RAB_BarDetail_SelectedGroups[capturedBuffKey]) then
+								RAB_BarDetail_SelectedGroups[capturedBuffKey][groupNum] = not RAB_BarDetail_SelectedGroups[capturedBuffKey][groupNum];
+							end
+							RABui_BarDetail_BarGroups_UpdateText();
+						end,
+						keepShownOnClick = 1
+					}, 2);
+				end
+				local capturedBuffKey = buffKey;
+				UIDropDownMenu_AddButton({
+					text = sRAB_AddBar_ToggleAll,
+					notCheckable = 1,
+					func = function()
+						if (RAB_BarDetail_SelectedGroups[capturedBuffKey]) then
+							local newState = not RAB_BarDetail_SelectedGroups[capturedBuffKey][1];
+							for i = 1, 8 do
+								RAB_BarDetail_SelectedGroups[capturedBuffKey][i] = newState;
+							end
+						end
+						RABui_BarDetail_BarGroups_UpdateText();
+					end
+				}, 2);
 			end
 		end
 	end
+	DropDownList1.maxWidth = 200;
+end
 
-	if (gc == fgc or gc == 0) then
+function RABui_BarDetail_BarClasses_UpdateText()
+	local numBuffKeys = table.getn(RAB_BarDetail_SelectedBuffKeysOrder);
+	if (numBuffKeys == 0) then
 		UIDropDownMenu_SetText(sRAB_Settings_BarDetail_ClassesAll, RAB_BarDetail_Classes);
-	elseif (fgc >= 1) then
-		UIDropDownMenu_SetText(string.format(sRAB_Settings_BarDetail_ClassesSome, sb), RAB_BarDetail_Classes);
+		return;
+	end
+	
+	if (numBuffKeys == 1) then
+		-- Single query: show simple text
+		local buffKey = RAB_BarDetail_SelectedBuffKeysOrder[1];
+		if (not RAB_BarDetail_SelectedClasses[buffKey]) then
+			UIDropDownMenu_SetText(sRAB_Settings_BarDetail_ClassesAll, RAB_BarDetail_Classes);
+			return;
+		end
+		
+		local sb, gc, fgc = "", 0, 0;
+		local ignoreString = "-";
+		local buffData = RAB_Buffs[buffKey];
+		
+		if (buffData and buffData.ignoreClass ~= nil) then
+			ignoreString = buffData.ignoreClass;
+		end
+
+		if buffData and buffData.class then
+			local fullClass = buffData.class;
+			local shortClass = RAB_ClassShort[fullClass];
+			fgc = 1;
+			if (RAB_BarDetail_SelectedClasses[buffKey][shortClass]) then
+				sb = (sb == "" and "" or (sb .. ", ")) .. fullClass;
+				gc = gc + 1;
+			end
+		else
+			for key, val in RAB_ClassShort do
+				if (string.find(ignoreString, val) == nil) then
+					fgc = fgc + 1;
+					if (RAB_BarDetail_SelectedClasses[buffKey][val]) then
+						sb = (sb == "" and "" or (sb .. ", ")) .. key;
+						gc = gc + 1;
+					end
+				end
+			end
+		end
+
+		if (gc == fgc or gc == 0) then
+			UIDropDownMenu_SetText(sRAB_Settings_BarDetail_ClassesAll, RAB_BarDetail_Classes);
+		elseif (fgc >= 1) then
+			UIDropDownMenu_SetText(string.format(sRAB_Settings_BarDetail_ClassesSome, sb), RAB_BarDetail_Classes);
+		else
+			UIDropDownMenu_SetText(sRAB_Settings_BarDetail_ClassesAll, RAB_BarDetail_Classes);
+		end
 	else
-		UIDropDownMenu_SetText(sRAB_Settings_BarDetail_ClassesAll, RAB_BarDetail_Classes);
+		-- Multi query: show summary
+		UIDropDownMenu_SetText("Classes (per buff)", RAB_BarDetail_Classes);
 	end
 end
 
@@ -1434,42 +1538,133 @@ function RABui_BarDetail_BarClasses_OnLoad()
 end
 
 function RABui_BarDetail_BarClasses_Initialize()
-	local key, val;
-	local buffSelected = RAB_BarDetail_SelectedType ~= "" and RAB_BarDetail_SelectedType ~= nil and RAB_Buffs[RAB_BarDetail_SelectedType] ~= nil;
-	for key, val in RAB_ClassShort do
-		local addClass = true;
-		-- check for ignored classes
-		if (buffSelected and
-				RAB_Buffs[RAB_BarDetail_SelectedType].ignoreClass and
-				string.find(RAB_Buffs[RAB_BarDetail_SelectedType].ignoreClass, val)) then
-			-- skip ignored classes
-			addClass = nil;
-		elseif buffSelected and RAB_Buffs[RAB_BarDetail_SelectedType].class then
-			-- ignore all classes except the one specified
-			local shortClass = RAB_ClassShort[RAB_Buffs[RAB_BarDetail_SelectedType].class];
-			if shortClass and shortClass ~= val then
+	local numBuffKeys = table.getn(RAB_BarDetail_SelectedBuffKeysOrder);
+	
+	if (numBuffKeys == 0) then
+		return;
+	end
+	
+	if (numBuffKeys == 1) then
+		-- Single query: show simple layout
+		local buffKey = RAB_BarDetail_SelectedBuffKeysOrder[1];
+		if (not RAB_BarDetail_SelectedClasses[buffKey]) then
+			return;
+		end
+		local buffData = RAB_Buffs[buffKey];
+		for key, val in RAB_ClassShort do
+			local addClass = true;
+			-- check for ignored classes
+			if (buffData and buffData.ignoreClass and string.find(buffData.ignoreClass, val)) then
 				addClass = nil;
+			elseif buffData and buffData.class then
+				-- ignore all classes except the one specified
+				local shortClass = RAB_ClassShort[buffData.class];
+				if shortClass and shortClass ~= val then
+					addClass = nil;
+				end
+			end
+
+			if addClass then
+				local classVal = val;
+				local capturedBuffKey = buffKey;
+				UIDropDownMenu_AddButton({
+					text = key .. "s",
+					value = val,
+					checked = (RAB_BarDetail_SelectedClasses[buffKey][val] == true),
+					func = function()
+						if (RAB_BarDetail_SelectedClasses[capturedBuffKey]) then
+							RAB_BarDetail_SelectedClasses[capturedBuffKey][classVal] = not RAB_BarDetail_SelectedClasses[capturedBuffKey][classVal];
+						end
+						RABui_BarDetail_BarClasses_UpdateText();
+					end,
+					keepShownOnClick = 1,
+					justifyH = "CENTER"
+				});
 			end
 		end
+		local capturedBuffKey = buffKey;
+		UIDropDownMenu_AddButton({
+			text = sRAB_AddBar_ToggleAll,
+			func = function()
+				if (RAB_BarDetail_SelectedClasses[capturedBuffKey]) then
+					local newState = not RAB_BarDetail_SelectedClasses[capturedBuffKey]["m"];
+					for k, v in RAB_BarDetail_SelectedClasses[capturedBuffKey] do
+						RAB_BarDetail_SelectedClasses[capturedBuffKey][k] = newState;
+					end
+				end
+				RABui_BarDetail_BarClasses_UpdateText();
+			end,
+			notCheckable = 1,
+			justifyH = "CENTER"
+		});
+	else
+		-- Multi query: show hierarchical menu
+		if (UIDROPDOWNMENU_MENU_LEVEL == 1) then
+			-- Level 1: Show buff names
+			for _, buffKey in ipairs(RAB_BarDetail_SelectedBuffKeysOrder) do
+				local buffData = RAB_Buffs[buffKey];
+				if (buffData and RAB_BarDetail_SelectedClasses[buffKey]) then
+					UIDropDownMenu_AddButton({
+						text = buffData.name,
+						value = buffKey,
+						hasArrow = 1,
+						notCheckable = 1
+					});
+				end
+			end
+		else
+			-- Level 2: Show classes for selected buff
+			local buffKey = UIDROPDOWNMENU_MENU_VALUE;
+			if (buffKey and RAB_BarDetail_SelectedClasses[buffKey]) then
+				local buffData = RAB_Buffs[buffKey];
+				for key, val in RAB_ClassShort do
+					local addClass = true;
+					-- check for ignored classes
+					if (buffData and buffData.ignoreClass and string.find(buffData.ignoreClass, val)) then
+						addClass = nil;
+					elseif buffData and buffData.class then
+						-- ignore all classes except the one specified
+						local shortClass = RAB_ClassShort[buffData.class];
+						if shortClass and shortClass ~= val then
+							addClass = nil;
+						end
+					end
 
-		if addClass then
-			UIDropDownMenu_AddButton({
-				text = key .. "s",
-				value = val,
-				checked = (RAB_BarDetail_SelectedClasses[val] == true),
-				func = RABui_BarDetail_BarClasses_ToggleClass,
-				keepShownOnClick = 1,
-				justifyH = "CENTER"
-			});
+					if addClass then
+						local classVal = val;
+						local capturedBuffKey = buffKey;
+						UIDropDownMenu_AddButton({
+							text = key .. "s",
+							value = val,
+							checked = (RAB_BarDetail_SelectedClasses[buffKey][val] == true),
+							func = function()
+								if (RAB_BarDetail_SelectedClasses[capturedBuffKey]) then
+									RAB_BarDetail_SelectedClasses[capturedBuffKey][classVal] = not RAB_BarDetail_SelectedClasses[capturedBuffKey][classVal];
+								end
+								RABui_BarDetail_BarClasses_UpdateText();
+							end,
+							keepShownOnClick = 1
+						}, 2);
+					end
+				end
+				local capturedBuffKey = buffKey;
+				UIDropDownMenu_AddButton({
+					text = sRAB_AddBar_ToggleAll,
+					notCheckable = 1,
+					func = function()
+						if (RAB_BarDetail_SelectedClasses[capturedBuffKey]) then
+							local newState = not RAB_BarDetail_SelectedClasses[capturedBuffKey]["m"];
+							for k, v in RAB_BarDetail_SelectedClasses[capturedBuffKey] do
+								RAB_BarDetail_SelectedClasses[capturedBuffKey][k] = newState;
+							end
+						end
+						RABui_BarDetail_BarClasses_UpdateText();
+					end
+				}, 2);
+			end
 		end
 	end
-	DropDownList1.maxWidth = 170;
-	UIDropDownMenu_AddButton({
-		text = sRAB_AddBar_ToggleAll,
-		func = RABui_BarDetail_BarClasses_ToggleAll,
-		notCheckable = 1,
-		justifyH = "CENTER"
-	});
+	DropDownList1.maxWidth = 200;
 end
 
 function RABui_BarDetail_OutputTarget_OnLoad()
@@ -1682,9 +1877,15 @@ function RABui_AddFrameDropDown_OnClick()
 					break;
 				end
 			end
+			-- Remove group/class data for deselected buff
+			RAB_BarDetail_SelectedGroups[this.value] = nil;
+			RAB_BarDetail_SelectedClasses[this.value] = nil;
 		else
 			RAB_BarDetail_SelectedBuffKeys[this.value] = true;
 			table.insert(RAB_BarDetail_SelectedBuffKeysOrder, this.value);
+			-- Initialize group/class data for newly selected buff
+			RAB_BarDetail_SelectedGroups[this.value] = { true, true, true, true, true, true, true, true };
+			RAB_BarDetail_SelectedClasses[this.value] = { m = true, l = true, p = true, r = true, d = true, h = true, s = true, w = true, a = true };
 		end
 		if (table.getn(RAB_BarDetail_SelectedBuffKeys) > 0) then
 			RAB_BarDetail_SelectedType = this.value;
@@ -1693,10 +1894,15 @@ function RABui_AddFrameDropDown_OnClick()
 		RAB_BarDetail_SelectedBuffKeys = { [this.value] = true };
 		RAB_BarDetail_SelectedBuffKeysOrder = { this.value };
 		RAB_BarDetail_SelectedType = this.value;
+		-- Initialize group/class data for single selected buff
+		RAB_BarDetail_SelectedGroups = { [this.value] = { true, true, true, true, true, true, true, true } };
+		RAB_BarDetail_SelectedClasses = { [this.value] = { m = true, l = true, p = true, r = true, d = true, h = true, s = true, w = true, a = true } };
 		ToggleDropDownMenu(1, nil, RAB_BarDetail_Type);
 	end
 	
 	RABui_BarDetail_BuffType_UpdateText();
+	RABui_BarDetail_BarGroups_UpdateText();
+	RABui_BarDetail_BarClasses_UpdateText();
 end
 
 function RABui_BarDetail_BuffType_UpdateText()
@@ -1726,27 +1932,6 @@ function RABui_BarDetail_BuffType_UpdateText()
 end
 
 function RABui_AddBar_Accept()
-	local i, groups, classes, alltrue, key, val = 0, "", "", true;
-	for i = 1, 8 do
-		alltrue = alltrue and RAB_BarDetail_SelectedGroups[i];
-		if (RAB_BarDetail_SelectedGroups[i] == true) then
-			groups = (groups == "" and " " or groups) .. i;
-		end
-	end
-	if (alltrue) then
-		groups = "";
-	end
-	alltrue = true;
-	for key, val in RAB_ClassShort do
-		alltrue = alltrue and RAB_BarDetail_SelectedClasses[val];
-		if (RAB_BarDetail_SelectedClasses[val] == true) then
-			classes = (classes == "" and " " or classes) .. val;
-		end
-	end
-	if (alltrue) then
-		classes = "";
-	end
-
 	-- Gather selected buff keys in the order they were selected
 	local selectedBuffKeys = {};
 	for _, buffKey in ipairs(RAB_BarDetail_SelectedBuffKeysOrder) do
@@ -1761,11 +1946,54 @@ function RABui_AddBar_Accept()
 	end
 
 	if (table.getn(selectedBuffKeys) > 0) then
-		-- Apply ignoreClass filter to all selected buffs
-		local classes_copy = classes;
-		for _, buffKey in ipairs(selectedBuffKeys) do
-			if (RAB_Buffs[buffKey] and RAB_Buffs[buffKey].ignoreClass ~= nil) then
-				classes = string.gsub(classes, "[" .. RAB_Buffs[buffKey].ignoreClass .. "]", "");
+		-- Build per-buffKey group/class restrictions
+		local groupsByBuff = {};
+		local classesByBuff = {};
+		local legacyGroups, legacyClasses = "", "";
+		
+		for idx, buffKey in ipairs(selectedBuffKeys) do
+			local groups, classes = "", "";
+			local alltrue = true;
+			
+			-- Build groups string for this buffKey
+			if (RAB_BarDetail_SelectedGroups[buffKey]) then
+				for i = 1, 8 do
+					alltrue = alltrue and RAB_BarDetail_SelectedGroups[buffKey][i];
+					if (RAB_BarDetail_SelectedGroups[buffKey][i] == true) then
+						groups = (groups == "" and " " or groups) .. i;
+					end
+				end
+				if (alltrue) then
+					groups = "";
+				end
+			end
+			
+			-- Build classes string for this buffKey
+			alltrue = true;
+			if (RAB_BarDetail_SelectedClasses[buffKey]) then
+				for key, val in RAB_ClassShort do
+					alltrue = alltrue and RAB_BarDetail_SelectedClasses[buffKey][val];
+					if (RAB_BarDetail_SelectedClasses[buffKey][val] == true) then
+						classes = (classes == "" and " " or classes) .. val;
+					end
+				end
+				if (alltrue) then
+					classes = "";
+				end
+				
+				-- Apply ignoreClass filter
+				if (RAB_Buffs[buffKey] and RAB_Buffs[buffKey].ignoreClass ~= nil) then
+					classes = string.gsub(classes, "[" .. RAB_Buffs[buffKey].ignoreClass .. "]", "");
+				end
+			end
+			
+			groupsByBuff[buffKey] = groups;
+			classesByBuff[buffKey] = classes;
+			
+			-- Use first buff's restrictions for legacy fields
+			if (idx == 1) then
+				legacyGroups = groups;
+				legacyClasses = classes;
 			end
 		end
 
@@ -1775,14 +2003,16 @@ function RABui_AddBar_Accept()
 		RABui_AddBar(
 				selectedBuffKeys,
 				RAB_BarDetail_SelfLimit:GetChecked(),
-				groups,
-				classes,
+				legacyGroups,
+				legacyClasses,
 				RAB_BarDetail_Label:GetText(),
 				11 - RAB_BarDetail_Priority:GetValue(),
 				RAB_BarDetail_Output,
 				RAB_BarDetail_PlayerExcludes:GetText(),
 				RAB_BarDetail_UseOnClick:GetChecked(),
-				fillStyle);
+				fillStyle,
+				groupsByBuff,
+				classesByBuff);
 	end
 end
 
@@ -1794,7 +2024,7 @@ function split(str, delimiter)
 	return result
 end
 
-function RABui_AddBar(buffKey, selfLimit, groups, classes, barlabel, barpriority, outputTarget, excludeNamesStr, useOnClick, fillStyle)
+function RABui_AddBar(buffKey, selfLimit, groups, classes, barlabel, barpriority, outputTarget, excludeNamesStr, useOnClick, fillStyle, groupsByBuff, classesByBuff)
 	local excludeNames = {};
 	if (excludeNamesStr ~= nil and excludeNamesStr ~= "") then
 		excludeNames = split(excludeNamesStr, ",")
@@ -1843,8 +2073,10 @@ function RABui_AddBar(buffKey, selfLimit, groups, classes, barlabel, barpriority
 					buffKey = primaryBuffKey,  -- Legacy: single buff key
 					buffKeys = buffKeys,       -- Multiple buff keys
 					selfLimit = selfLimit,
-					groups = groups,
-					classes = classes,
+					groups = groups,           -- Legacy: single groups string
+					classes = classes,         -- Legacy: single classes string
+					groupsByBuff = groupsByBuff,  -- Per-buffKey groups
+					classesByBuff = classesByBuff, -- Per-buffKey classes
 					color = { 1, 1, 1 },
 					priority = barpriority,
 					extralabel = "",
@@ -1860,6 +2092,8 @@ function RABui_AddBar(buffKey, selfLimit, groups, classes, barlabel, barpriority
 		RABui_Bars[RAB_BarDetail_EditBarId].selfLimit = selfLimit;
 		RABui_Bars[RAB_BarDetail_EditBarId].groups = groups;
 		RABui_Bars[RAB_BarDetail_EditBarId].classes = classes;
+		RABui_Bars[RAB_BarDetail_EditBarId].groupsByBuff = groupsByBuff;
+		RABui_Bars[RAB_BarDetail_EditBarId].classesByBuff = classesByBuff;
 		RABui_Bars[RAB_BarDetail_EditBarId].label = barlabel;
 		RABui_Bars[RAB_BarDetail_EditBarId].priority = barpriority;
 		RABui_Bars[RAB_BarDetail_EditBarId].out = outputTarget;
