@@ -839,27 +839,43 @@ function RABui_UpdateTooltip(id)
 		local headerText = showwhat and string.format(sRAB_BuffOutput_IsOn, barName) .. ":" or string.format(sRAB_BuffOutput_MissingOn, barName) .. ":";
 		RAB_Tooltip:AddLine(headerText);
 		
-		-- Collect all players that match the criteria
+		-- First pass: collect all unique players and check if they have ANY buff
+		local playerBuffStatus = {}; -- tracks whether each player has at least one buff
 		for _, result in ipairs(allResults) do
 			if (result.raw) then
 				for i = 1, table.getn(result.raw) do
 					local line = result.raw[i];
-					if (line and line.class and line.buffed == showwhat) then
-						-- Only add if not already added (to avoid duplicates)
-						if (not consolidatedPlayers[line.unit]) then
-							consolidatedPlayers[line.unit] = {
-								name = line.name,
-								class = line.class,
-								unit = line.unit,
-								group = line.group,
-								append = line.append or "",
-								fade = line.fade,
-								rawsort = result.rawsort,
-								rawgroup = result.rawgroup
+					if (line and line.class) then
+						if (not playerBuffStatus[line.unit]) then
+							playerBuffStatus[line.unit] = {
+								hasAnyBuff = false,
+								playerData = {
+									name = line.name,
+									class = line.class,
+									unit = line.unit,
+									group = line.group,
+									append = line.append or "",
+									fade = line.fade,
+									rawsort = result.rawsort,
+									rawgroup = result.rawgroup
+								}
 							};
+						end
+						-- If this player has this specific buff, mark them as having at least one buff
+						if (line.buffed) then
+							playerBuffStatus[line.unit].hasAnyBuff = true;
 						end
 					end
 				end
+			end
+		end
+		
+		-- Second pass: filter based on showwhat
+		-- showwhat=true means show who HAS the buff (has ANY buff)
+		-- showwhat=false means show who's MISSING the buff (has NO buffs)
+		for unit, status in pairs(playerBuffStatus) do
+			if (status.hasAnyBuff == showwhat) then
+				consolidatedPlayers[unit] = status.playerData;
 			end
 		end
 		
@@ -1002,13 +1018,14 @@ function RABui_BuffCheckOutputWrapper(barId, outputTo, invert)
 	
 	if (table.getn(buffKeys) > 1 and fillStyle == "Exclusive") then
 		-- Handle exclusive multi-query output with bar name
-		local consolidatedPlayers = {};
+		local playerBuffStatus = {}; -- tracks whether each player has at least one buff
 		local showwhat = false; -- default to showing missing
 		local firstResult = nil;
 		local rawsort = "group";
 		local rawgroup = sRAB_Core_GroupFormat;
 		local totalPlayers = 0;
 		
+		-- First pass: collect all unique players and check if they have ANY buff
 		for i, buffKey in ipairs(buffKeys) do
 			if (RAB_Buffs[buffKey]) then
 				local userData = RABui_CreateTempUserData(barId, buffKey);
@@ -1023,9 +1040,15 @@ function RABui_BuffCheckOutputWrapper(barId, outputTo, invert)
 				
 				if (raw) then
 					for j, playerData in ipairs(raw) do
-						-- Aggregate based on whether they're buffed
-						if (not consolidatedPlayers[playerData.unit]) then
-							consolidatedPlayers[playerData.unit] = playerData;
+						if (not playerBuffStatus[playerData.unit]) then
+							playerBuffStatus[playerData.unit] = {
+								hasAnyBuff = false,
+								playerData = playerData
+							};
+						end
+						-- If this player has this specific buff, mark them as having at least one buff
+						if (playerData.buffed) then
+							playerBuffStatus[playerData.unit].hasAnyBuff = true;
 						end
 					end
 				end
@@ -1036,6 +1059,16 @@ function RABui_BuffCheckOutputWrapper(barId, outputTo, invert)
 			invert = not invert;
 		end
 		showwhat = invert;
+		
+		-- Second pass: filter based on showwhat
+		-- showwhat=true means show who HAS the buff (has ANY buff)
+		-- showwhat=false means show who's MISSING the buff (has NO buffs)
+		local consolidatedPlayers = {};
+		for unit, status in pairs(playerBuffStatus) do
+			if (status.hasAnyBuff == showwhat) then
+				consolidatedPlayers[unit] = status.playerData;
+			end
+		end
 		
 		-- Build output text
 		local output = (barData.groups ~= "" and barData.groups ~= "12345678") and ("[G" .. barData.groups .. "] ") or "";
@@ -1061,22 +1094,20 @@ function RABui_BuffCheckOutputWrapper(barId, outputTo, invert)
 		
 		for i = 1, table.getn(sortedPlayers) do
 			local player = sortedPlayers[i];
-			if (player.buffed == showwhat) then
-				if (ident ~= player[rawsort] and ident ~= false) then
-					if (uc > 1) then
-						txt = txt .. (txt ~= "" and ", " or "") .. 
-						      (rawsort == "group" and sRAB_BuffOutput_Group or "") .. 
-						      ident .. (rawsort == "class" and "s" or "") .. " [" .. uc .. "]";
-					elseif (uc == 1) then
-						txt = txt .. (txt ~= "" and ", " or "") .. ub;
-					end
-					ub, uc = "", 0;
+			if (ident ~= player[rawsort] and ident ~= false) then
+				if (uc > 1) then
+					txt = txt .. (txt ~= "" and ", " or "") .. 
+					      (rawsort == "group" and sRAB_BuffOutput_Group or "") .. 
+					      ident .. (rawsort == "class" and "s" or "") .. " [" .. uc .. "]";
+				elseif (uc == 1) then
+					txt = txt .. (txt ~= "" and ", " or "") .. ub;
 				end
-				
-				ident = player[rawsort];
-				uc = uc + 1;
-				ub = ub .. ((ub ~= "") and ", " or "") .. player.name .. " [" .. player.class .. "; G" .. player.group .. "]";
+				ub, uc = "", 0;
 			end
+			
+			ident = player[rawsort];
+			uc = uc + 1;
+			ub = ub .. ((ub ~= "") and ", " or "") .. player.name .. " [" .. player.class .. "; G" .. player.group .. "]";
 		end
 		
 		-- Add final group
@@ -1088,11 +1119,10 @@ function RABui_BuffCheckOutputWrapper(barId, outputTo, invert)
 			txt = txt .. (txt ~= "" and ", " or "") .. ub;
 		end
 		
+		-- Count players in consolidatedPlayers (already filtered)
 		local matchedCount = 0;
 		for _, player in pairs(consolidatedPlayers) do
-			if (player.buffed == showwhat) then
-				matchedCount = matchedCount + 1;
-			end
+			matchedCount = matchedCount + 1;
 		end
 		
 		if (matchedCount == 0) then
