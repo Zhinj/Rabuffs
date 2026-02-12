@@ -491,6 +491,12 @@ function RAB_CreateNewProfile(profileName)
 		return false;
 	end
 	
+	-- Save current profile before creating a new one
+	local currentProfile = RAB_GetCurrentProfile();
+	if currentProfile and currentProfile ~= "" and table.getn(RABui_Bars) > 0 then
+		RAB_SaveProfile(currentProfile);
+	end
+	
 	-- Create new profile with empty bars
 	RABui_Settings.Layout[profileKey] = {};
 	
@@ -524,6 +530,12 @@ function RAB_LoadProfile(profileName)
 	if not RABui_Settings.Layout[profileKey] then
 		RAB_Print("Error: Profile '" .. profileName .. "' does not exist");
 		return false;
+	end
+	
+	-- Save current profile before switching
+	local currentProfile = RAB_GetCurrentProfile();
+	if currentProfile and currentProfile ~= "" and table.getn(RABui_Bars) > 0 then
+		RAB_SaveProfile(currentProfile);
 	end
 	
 	-- Clear current bars
