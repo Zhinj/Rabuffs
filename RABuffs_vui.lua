@@ -994,6 +994,127 @@ function RABui_Tooltip_FormatNick(name, c, u, append)
 	return nick .. (append ~= nil and RAB_Chat_Colors[c] .. append .. "|r" or "");
 end
 
+function RABui_BuffCheckOutputWrapper(barId, outputTo, invert)
+	-- Wrapper for RAB_BuffCheckOutput that handles exclusive multi-query bars
+	local barData = RABui_Bars[barId];
+	local buffKeys = RABui_GetBuffKeysFromBar(barId);
+	local fillStyle = barData.fillStyle or "Segments";
+	
+	if (table.getn(buffKeys) > 1 and fillStyle == "Exclusive") then
+		-- Handle exclusive multi-query output with bar name
+		local consolidatedPlayers = {};
+		local showwhat = false; -- default to showing missing
+		local firstResult = nil;
+		local rawsort = "group";
+		local rawgroup = sRAB_Core_GroupFormat;
+		local totalPlayers = 0;
+		
+		for i, buffKey in ipairs(buffKeys) do
+			if (RAB_Buffs[buffKey]) then
+				local userData = RABui_CreateTempUserData(barId, buffKey);
+				local buffed, _, total, _, _, _, _, _, invertFlag, raw, sort, group = RAB_CallRaidBuffCheck(userData, true, true);
+				
+				if (i == 1) then
+					firstResult = { invert = invertFlag, total = total };
+					rawsort = sort or "group";
+					rawgroup = group or sRAB_Core_GroupFormat;
+					totalPlayers = total or 0;
+				end
+				
+				if (raw) then
+					for j, playerData in ipairs(raw) do
+						-- Aggregate based on whether they're buffed
+						if (not consolidatedPlayers[playerData.unit]) then
+							consolidatedPlayers[playerData.unit] = playerData;
+						end
+					end
+				end
+			end
+		end
+		
+		if (firstResult and firstResult.invert) then
+			invert = not invert;
+		end
+		showwhat = invert;
+		
+		-- Build output text
+		local output = (barData.groups ~= "" and barData.groups ~= "12345678") and ("[G" .. barData.groups .. "] ") or "";
+		output = output .. (barData.classes ~= "" and strlen(barData.classes) < 8 and "[" .. barData.classes .. "] " or "");
+		
+		local header = showwhat and string.format(sRAB_BuffOutput_IsOn, barData.label) .. ":" or string.format(sRAB_BuffOutput_MissingOn, barData.label) .. ":";
+		
+		-- Convert to array and sort
+		local sortedPlayers = {};
+		for _, playerData in pairs(consolidatedPlayers) do
+			table.insert(sortedPlayers, playerData);
+		end
+		
+		if (rawsort == "class") then
+			table.sort(sortedPlayers, function(a, b) return a.class < b.class end);
+		else
+			table.sort(sortedPlayers, function(a, b) return a.group < b.group end);
+		end
+		
+		-- Format output similar to default query handler
+		local txt = "";
+		local ub, uc, ident = "", 0, false;
+		
+		for i = 1, table.getn(sortedPlayers) do
+			local player = sortedPlayers[i];
+			if (player.buffed == showwhat) then
+				if (ident ~= player[rawsort] and ident ~= false) then
+					if (uc > 1) then
+						txt = txt .. (txt ~= "" and ", " or "") .. 
+						      (rawsort == "group" and sRAB_BuffOutput_Group or "") .. 
+						      ident .. (rawsort == "class" and "s" or "") .. " [" .. uc .. "]";
+					elseif (uc == 1) then
+						txt = txt .. (txt ~= "" and ", " or "") .. ub;
+					end
+					ub, uc = "", 0;
+				end
+				
+				ident = player[rawsort];
+				uc = uc + 1;
+				ub = ub .. ((ub ~= "") and ", " or "") .. player.name .. " [" .. player.class .. "; G" .. player.group .. "]";
+			end
+		end
+		
+		-- Add final group
+		if (uc > 1) then
+			txt = txt .. (txt ~= "" and ", " or "") .. 
+			      (rawsort == "group" and sRAB_BuffOutput_Group or "") .. 
+			      ident .. (rawsort == "class" and "s" or "") .. " [" .. uc .. "]";
+		elseif (uc == 1) then
+			txt = txt .. (txt ~= "" and ", " or "") .. ub;
+		end
+		
+		local matchedCount = 0;
+		for _, player in pairs(consolidatedPlayers) do
+			if (player.buffed == showwhat) then
+				matchedCount = matchedCount + 1;
+			end
+		end
+		
+		if (matchedCount == 0) then
+			txt = showwhat and string.format(sRAB_BuffOutput_EveryoneHas, barData.label) or string.format(sRAB_BuffOutput_EveryoneMissing, barData.label);
+		else
+			local count = showwhat and matchedCount or (totalPlayers - matchedCount);
+			txt = header .. " [" .. count .. " / " .. totalPlayers .. "] " .. txt .. ".";
+		end
+		
+		output = output .. txt;
+		
+		if (outputTo == "RAID" and not UnitInRaid("player")) then
+			outputTo = "PARTY";
+		end
+		output = sRAB_BuffOutputPrefix .. output;
+		RAB_SendMessage(output, outputTo, sRAB_BuffOutputPrefix);
+	else
+		-- Use default single-query output
+		RAB_BuffCheckOutput(barData, outputTo, invert);
+	end
+end
+
 function RABui_BarOnLeave()
 	local id = this:GetID();
 	RABui_TooltipBar = 0;
@@ -1006,7 +1127,7 @@ function RABui_BarOnClick()
 	local buffKeys = RABui_GetBuffKeysFromBar(id);
 	
 	if (arg1 == "LeftButton" and IsControlKeyDown()) then
-		RAB_BuffCheckOutput(RABui_Bars[id], RABui_Bars[id].out or "RAID", IsShiftKeyDown());
+		RABui_BuffCheckOutputWrapper(id, RABui_Bars[id].out or "RAID", IsShiftKeyDown());
 	elseif (arg1 == "LeftButton" and RABui_Bars[id].useOnClick) then
 		local fillStyle = RABui_Bars[id].fillStyle or "Segments";
 		
@@ -1033,7 +1154,7 @@ function RABui_BarOnClick()
 			
 			if (coveredCount >= totalPlayers and totalPlayers > 0) then
 				if (RABui_Settings.showsampleoutputonclick) then
-					RAB_BuffCheckOutput(RABui_Bars[id], "CONSOLE", IsShiftKeyDown());
+					RABui_BuffCheckOutputWrapper(id, "CONSOLE", IsShiftKeyDown());
 				end
 				return;
 			end
@@ -1054,7 +1175,7 @@ function RABui_BarOnClick()
 		end
 		
 		if (showOutput and RABui_Settings.showsampleoutputonclick) then
-			RAB_BuffCheckOutput(RABui_Bars[id], "CONSOLE", IsShiftKeyDown());
+			RABui_BuffCheckOutputWrapper(id, "CONSOLE", IsShiftKeyDown());
 		end
 	end
 end
