@@ -220,7 +220,6 @@ StaticPopupDialogs["RAB_PROFILE_IMPORT_NAME"] = {
             else
                 -- Profile doesn't exist, import directly
                 if RAB_ImportProfile(profileName, RAB_ImportProfileData) then
-                    RAB_SetCurrentProfile(profileName);
                     RAB_LoadProfile(profileName);
                     if RAB_Settings_ProfileSelector_UpdateText then
                         RAB_Settings_ProfileSelector_UpdateText();
@@ -240,7 +239,6 @@ StaticPopupDialogs["RAB_PROFILE_IMPORT_NAME"] = {
                 this:GetParent():Hide();
             else
                 if RAB_ImportProfile(profileName, RAB_ImportProfileData) then
-                    RAB_SetCurrentProfile(profileName);
                     RAB_LoadProfile(profileName);
                     if RAB_Settings_ProfileSelector_UpdateText then
                         RAB_Settings_ProfileSelector_UpdateText();
@@ -268,7 +266,6 @@ StaticPopupDialogs["RAB_PROFILE_IMPORT_CONFIRM"] = {
     OnAccept = function()
         if RAB_ProfileToImport and RAB_ImportProfileData then
             if RAB_ImportProfile(RAB_ProfileToImport, RAB_ImportProfileData) then
-                RAB_SetCurrentProfile(RAB_ProfileToImport);
                 RAB_LoadProfile(RAB_ProfileToImport);
                 if RAB_Settings_ProfileSelector_UpdateText then
                     RAB_Settings_ProfileSelector_UpdateText();

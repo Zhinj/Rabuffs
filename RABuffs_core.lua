@@ -587,6 +587,15 @@ function RAB_DeleteProfile(profileName)
 	
 	-- If we just deleted the current profile, switch to Default
 	if RAB_GetCurrentProfile() == profileName then
+		-- Ensure Default profile exists before switching
+		local defaultKey = RAB_GetCharKey() .. ".Default";
+		if not RABui_Settings.Layout[defaultKey] then
+			-- Create empty Default profile
+			RABui_Settings.Layout[defaultKey] = {};
+		end
+		
+		-- Set current profile to Default BEFORE loading to prevent RAB_LoadProfile from re-saving the deleted profile
+		RAB_SetCurrentProfile("Default");
 		RAB_LoadProfile("Default");
 	end
 	
@@ -697,8 +706,23 @@ function RAB_ImportProfile(profileName, profileData)
 
 	-- Validate the bars
 	for i, bar in ipairs(bars) do
-		if not bar.buffKey or not RAB_Buffs[bar.buffKey] then
-			RAB_Print("Error: Bar " .. i .. " has invalid buff key: " .. tostring(bar.buffKey));
+		local hasValidBuff = false;
+		
+		-- Check single-query bar (buffKey)
+		if bar.buffKey and RAB_Buffs[bar.buffKey] then
+			hasValidBuff = true;
+		-- Check multi-query bar (buffKeys array)
+		elseif bar.buffKeys and type(bar.buffKeys) == "table" then
+			for _, buffKey in ipairs(bar.buffKeys) do
+				if buffKey and RAB_Buffs[buffKey] then
+					hasValidBuff = true;
+					break;
+				end
+			end
+		end
+		
+		if not hasValidBuff then
+			RAB_Print("Error: Bar " .. i .. " has no valid buff keys");
 			return false;
 		end
 	end
