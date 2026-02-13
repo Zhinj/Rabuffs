@@ -267,15 +267,23 @@ function RAB_DefaultQueryHandler(userData, needraw, needtxt)
 		end
 
 		if (uc == 0) then
-			hastxt = hastxt ..
-					(hastxt ~= "" and ", " or "") ..
-					(rawsort == "group" and sRAB_BuffOutput_Group or "") ..
-					ident .. (rawsort == "class" and "s" or "") .. " [" .. bc .. "]";
+			if (bc > 1) then
+				hastxt = hastxt ..
+						(hastxt ~= "" and ", " or "") ..
+						(rawsort == "group" and sRAB_BuffOutput_Group or "") ..
+						ident .. (rawsort == "class" and "s" or "") .. " [" .. bc .. "]";
+			else
+				hastxt = hastxt .. (hastxt ~= "" and ", " or "") .. bb;
+			end
 		elseif (bc == 0) then
-			txt = txt ..
-					(txt ~= "" and ", " or "") ..
-					(rawsort == "group" and sRAB_BuffOutput_Group or "") ..
-					ident .. (rawsort == "class" and "s" or "") .. " [" .. uc .. "]";
+			if (uc > 1) then
+				txt = txt ..
+						(txt ~= "" and ", " or "") ..
+						(rawsort == "group" and sRAB_BuffOutput_Group or "") ..
+						ident .. (rawsort == "class" and "s" or "") .. " [" .. uc .. "]";
+			else
+				txt = txt .. (txt ~= "" and ", " or "") .. ub;
+			end
 		else
 			hastxt = hastxt .. (hastxt ~= "" and ", " or "") .. bb;
 			txt = txt .. (txt ~= "" and ", " or "") .. ub;

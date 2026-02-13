@@ -1136,14 +1136,16 @@ function RABui_BuffCheckOutputWrapper(barId, outputTo, invert)
 			matchedCount = matchedCount + 1;
 		end
 		
-		if (matchedCount == 0) then
-			-- If filter list is empty: 
-			-- - showing missing (showwhat=false) + no missing = everyone has
-			-- - showing has (showwhat=true) + no has = everyone missing  
-			txt = showwhat and string.format(sRAB_BuffOutput_EveryoneMissing, barData.label) or string.format(sRAB_BuffOutput_EveryoneHas, barData.label);
-		else
-			-- matchedCount is already the count we want (either missing or has, depending on showwhat)
+		-- Match single-query format
+		if (matchedCount == totalPlayers and totalPlayers > 0) then
+			-- Everyone matches: either everyone has (showwhat=true) or everyone is missing (showwhat=false)
+			txt = showwhat and string.format(sRAB_BuffOutput_EveryoneHas, barData.label) or string.format(sRAB_BuffOutput_EveryoneMissing, barData.label);
+		elseif (matchedCount > 0) then
+			-- Partial list
 			txt = header .. " [" .. matchedCount .. " / " .. totalPlayers .. "] " .. txt .. ".";
+		else
+			-- Nobody matches: either nobody has (showwhat=true) or nobody is missing (showwhat=false)
+			txt = showwhat and string.format(sRAB_BuffOutput_EveryoneMissing, barData.label) or string.format(sRAB_BuffOutput_EveryoneHas, barData.label);
 		end
 		
 		output = output .. txt;
@@ -1153,9 +1155,16 @@ function RABui_BuffCheckOutputWrapper(barId, outputTo, invert)
 		end
 		output = sRAB_BuffOutputPrefix .. output;
 		RAB_SendMessage(output, outputTo, sRAB_BuffOutputPrefix);
+	elseif (table.getn(buffKeys) > 1) then
+		-- Handle other multi-query fill styles by announcing each buff separately
+		for i, buffKey in ipairs(buffKeys) do
+			local userData = RABui_CreateTempUserData(barId, buffKey);
+			RAB_BuffCheckOutput(userData, outputTo, invert);
+		end
 	else
-		-- Use default single-query output
-		RAB_BuffCheckOutput(barData, outputTo, invert);
+		-- Single-query bar: use default output
+		local userData = RABui_CreateTempUserData(barId, buffKeys[1]);
+		RAB_BuffCheckOutput(userData, outputTo, invert);
 	end
 end
 
