@@ -540,9 +540,25 @@ function RABui_MoveBar(barid, direction)
 end
 
 function RABui_OnUpdate(elapsed)
-	local i;
-
-	if (RABui_NextUpdate < RAB_CachedTime) then
+	-- Early exit if not time to update and no active tooltip
+	local hasTooltip = (RABui_TooltipBar ~= nil and RABui_TooltipBar ~= 0);
+	local needsUpdate = (RABui_NextUpdate < RAB_CachedTime);
+	
+	if (not needsUpdate and not hasTooltip) then
+		return;
+	end
+	
+	-- Only check modifier keys if we have an active tooltip (and data isn't being updated this frame)
+	if (hasTooltip and not needsUpdate) then
+		local shiftstate = (IsShiftKeyDown() and 1 or 0) + (IsAltKeyDown() and 2 or 0);
+		if (shiftstate ~= RABui_LastShiftState) then
+			RABui_LastShiftState = shiftstate;
+			RABui_UpdateTooltip(RABui_TooltipBar);
+		end
+	end
+	
+	-- Perform scheduled bar updates
+	if (needsUpdate) then
 		RABui_UpdateId = (RABui_UpdateId > 10 and 0 or RABui_UpdateId) + 1;
 		for i = 1, table.getn(RABui_Bars) do
 			if (math.mod(RABui_UpdateId, RABui_Bars[i].priority) == 0 or RABui_TooltipBar == i) then
@@ -550,11 +566,11 @@ function RABui_OnUpdate(elapsed)
 			end
 		end
 		RABui_NextUpdate = RAB_CachedTime + RABui_Settings.updateInterval;
-	end
-	local shiftstate = (IsShiftKeyDown() and 1 or 0) + (IsAltKeyDown() and 2 or 0);
-	if (shiftstate ~= RABui_LastShiftState) then
-		RABui_LastShiftState = shiftstate;
-		if (RABui_TooltipBar ~= nil and RABui_TooltipBar ~= 0) then
+		
+		-- Update tooltip after bar data refresh (but only once per update cycle)
+		if (hasTooltip) then
+			-- Also update shift state during data refresh
+			RABui_LastShiftState = (IsShiftKeyDown() and 1 or 0) + (IsAltKeyDown() and 2 or 0);
 			RABui_UpdateTooltip(RABui_TooltipBar);
 		end
 	end
@@ -588,7 +604,6 @@ function RABui_UpdateBar(barid)
 	local bartext = RABui_Bars[barid].label .. RABui_Bars[barid].extralabel;
 	if (RABui_TooltipBar == barid) then
 		bartext = buffed .. " / " .. total .. (total > 0 and " (" .. floor(buffed * 100 / total) .. "%)" or "");
-		RABui_UpdateTooltip(barid);
 	end
 	RABui_SetBarText(barid, bartext);
 end
