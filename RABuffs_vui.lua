@@ -829,28 +829,29 @@ function RABui_UpdateTooltip(id)
 	
 	local function RenderExclusiveTooltip(allResults, barName)
 		-- For exclusive fill style with multiple queries, show consolidated list
+		-- Shift not pressed: show who's missing (has no buffs)
+		-- Shift pressed: show who has (has at least one buff)
+		local showwhat = IsShiftKeyDown() and true or false;
 		local consolidatedPlayers = {};
-		
-		-- Determine if we should show inverted view based on Shift key
-		local showwhat = allResults[1].invert;
-		if (IsShiftKeyDown()) then showwhat = not showwhat; end
 
-		-- Create header with bar name
 		local headerText = showwhat and string.format(sRAB_BuffOutput_IsOn, barName) .. ":" or string.format(sRAB_BuffOutput_MissingOn, barName) .. ":";
 		RAB_Tooltip:AddLine(headerText);
 		
 		-- First pass: collect all unique players and check if they have ANY buff
-		local playerBuffStatus = {}; -- tracks whether each player has at least one buff
+		local playerBuffStatus = {};
 		for _, result in ipairs(allResults) do
 			if (result.raw) then
 				for i = 1, table.getn(result.raw) do
 					local line = result.raw[i];
-					if (line and line.class) then
-						if (not playerBuffStatus[line.unit]) then
-							playerBuffStatus[line.unit] = {
+					if (line and line.class and line.unit) then
+						local cleanName = UnitName(line.unit) or line.unit;
+						-- Remove buff count suffix like " [2]"
+						cleanName = string.gsub(cleanName, " %[%d+%]$", "");
+						if (not playerBuffStatus[cleanName]) then
+							playerBuffStatus[cleanName] = {
 								hasAnyBuff = false,
 								playerData = {
-									name = line.name,
+									name = cleanName,
 									class = line.class,
 									unit = line.unit,
 									group = line.group,
@@ -863,19 +864,17 @@ function RABui_UpdateTooltip(id)
 						end
 						-- If this player has this specific buff, mark them as having at least one buff
 						if (line.buffed) then
-							playerBuffStatus[line.unit].hasAnyBuff = true;
+							playerBuffStatus[cleanName].hasAnyBuff = true;
 						end
 					end
 				end
 			end
 		end
 		
-		-- Second pass: filter based on showwhat
-		-- showwhat=true means show who HAS the buff (has ANY buff)
-		-- showwhat=false means show who's MISSING the buff (has NO buffs)
-		for unit, status in pairs(playerBuffStatus) do
+		-- Second pass: filter based on shift key state
+		for name, status in pairs(playerBuffStatus) do
 			if (status.hasAnyBuff == showwhat) then
-				consolidatedPlayers[unit] = status.playerData;
+				consolidatedPlayers[name] = status.playerData;
 			end
 		end
 		
@@ -1018,8 +1017,8 @@ function RABui_BuffCheckOutputWrapper(barId, outputTo, invert)
 	
 	if (table.getn(buffKeys) > 1 and fillStyle == "Exclusive") then
 		-- Handle exclusive multi-query output with bar name
-		local playerBuffStatus = {}; -- tracks whether each player has at least one buff
-		local showwhat = false; -- default to showing missing
+		local playerBuffStatus = {};
+		local showwhat;
 		local firstResult = nil;
 		local rawsort = "group";
 		local rawgroup = sRAB_Core_GroupFormat;
@@ -1035,38 +1034,50 @@ function RABui_BuffCheckOutputWrapper(barId, outputTo, invert)
 					firstResult = { invert = invertFlag, total = total };
 					rawsort = sort or "group";
 					rawgroup = group or sRAB_Core_GroupFormat;
-					totalPlayers = total or 0;
 				end
 				
 				if (raw) then
 					for j, playerData in ipairs(raw) do
-						if (not playerBuffStatus[playerData.unit]) then
-							playerBuffStatus[playerData.unit] = {
+						local cleanName = playerData.unit and UnitName(playerData.unit) or playerData.name;
+						-- Remove buff count suffix like " [2]"
+						cleanName = string.gsub(cleanName, " %[%d+%]$", "");
+						
+						if (not playerBuffStatus[cleanName]) then
+							playerBuffStatus[cleanName] = {
 								hasAnyBuff = false,
-								playerData = playerData
+								playerData = {
+									unit = playerData.unit,
+									name = cleanName,
+									class = playerData.class,
+									group = playerData.group,
+									fade = playerData.fade,
+									append = playerData.append or ""
+								}
 							};
 						end
 						-- If this player has this specific buff, mark them as having at least one buff
 						if (playerData.buffed) then
-							playerBuffStatus[playerData.unit].hasAnyBuff = true;
+							playerBuffStatus[cleanName].hasAnyBuff = true;
 						end
 					end
 				end
 			end
 		end
 		
-		if (firstResult and firstResult.invert) then
-			invert = not invert;
-		end
-		showwhat = invert;
+		-- Use invert parameter (from Shift key) to determine what to show
+		showwhat = invert and true or false;
 		
-		-- Second pass: filter based on showwhat
-		-- showwhat=true means show who HAS the buff (has ANY buff)
-		-- showwhat=false means show who's MISSING the buff (has NO buffs)
+		-- Calculate total as union of all players across queries
+		totalPlayers = 0;
+		for _ in pairs(playerBuffStatus) do
+			totalPlayers = totalPlayers + 1;
+		end
+		
+		-- Second pass: filter based on shift key state
 		local consolidatedPlayers = {};
-		for unit, status in pairs(playerBuffStatus) do
+		for name, status in pairs(playerBuffStatus) do
 			if (status.hasAnyBuff == showwhat) then
-				consolidatedPlayers[unit] = status.playerData;
+				consolidatedPlayers[name] = status.playerData;
 			end
 		end
 		
@@ -1126,10 +1137,13 @@ function RABui_BuffCheckOutputWrapper(barId, outputTo, invert)
 		end
 		
 		if (matchedCount == 0) then
-			txt = showwhat and string.format(sRAB_BuffOutput_EveryoneHas, barData.label) or string.format(sRAB_BuffOutput_EveryoneMissing, barData.label);
+			-- If filter list is empty: 
+			-- - showing missing (showwhat=false) + no missing = everyone has
+			-- - showing has (showwhat=true) + no has = everyone missing  
+			txt = showwhat and string.format(sRAB_BuffOutput_EveryoneMissing, barData.label) or string.format(sRAB_BuffOutput_EveryoneHas, barData.label);
 		else
-			local count = showwhat and matchedCount or (totalPlayers - matchedCount);
-			txt = header .. " [" .. count .. " / " .. totalPlayers .. "] " .. txt .. ".";
+			-- matchedCount is already the count we want (either missing or has, depending on showwhat)
+			txt = header .. " [" .. matchedCount .. " / " .. totalPlayers .. "] " .. txt .. ".";
 		end
 		
 		output = output .. txt;
